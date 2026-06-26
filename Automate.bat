@@ -1,5 +1,5 @@
 :: NOTE: This is the OUTDATED .bat file this app was made to replace. uploading as legacy support 
-:: this file automates hamad's method (needs updating, but that's what the app is for.) 
+:: this file automates hamad's method (needs updating, but that's what the app is for). 
 
 :: ====================================== Copyright Notice ======================================
 
