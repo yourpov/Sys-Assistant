@@ -25,7 +25,8 @@ a tauri app version of an automated `.bat` script i made awhile back. same idea,
 
 ## running it
 
-this is built with [Tauri](https://tauri.app/), worth a look if you want to know more about how it works.
+this is built with [Tauri](https://tauri.app/), a framework i been working with alot recently. take a look if you want to know more about how it works.
+
 
 there's a built binary under [Releases](../../releases) if you just want to run the app directly
 
