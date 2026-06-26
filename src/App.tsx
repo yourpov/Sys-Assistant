@@ -109,7 +109,7 @@ export function App() {
           <ConfirmDialog
             key="needsReboot"
             title="Your computer needs to restart"
-            body="Remote Desktop was on, which breaks the optimizer, so it's been turned off. Restart now to finish, or restart later yourself before running this again."
+            body="Remote Desktop was on, which breaks the emu, so it's been turned off. Restart now to finish, or restart later yourself before running this again."
             confirmLabel="Restart now"
             onConfirm={workflow.confirmReboot}
             onCancel={workflow.dismissReboot}
