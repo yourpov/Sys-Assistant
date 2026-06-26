@@ -1,3 +1,6 @@
+:: NOTE: This is the OUTDATED .bat file this app was made to replace. uploading as legacy support 
+:: this file automates hamad's method (needs updating, but that's what the app is for.) 
+
 :: ====================================== Copyright Notice ======================================
 
 :: This script is not an offical product of Sys-Info and was created by a customer of Private.
