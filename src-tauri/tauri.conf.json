@@ -35,7 +35,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI2OEI0MzVDQThERUM5MkQKUldRdHlkNm9YRU9MSnVnRnhWbExKTTE0eG1Wb2JqL1doS0dBTFQ2Rm1UVFRMTnFtS3oxbDVxMzIK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIwREYwMEU4RDI3MjgzNDYKUldSR2czTFM2QURmc0lZVlg0WU5vcGJGUG5CZmRBOTNlT1BxV0VSbWs0WGRGd2FLdkkwS1hEZFQK",
       "endpoints": ["https://github.com/yourpov/Sys-Assistant/releases/latest/download/latest.json"]
     },
     "deep-link": {
