@@ -8,10 +8,9 @@ Tauri desktop app for the Sys-Info Valorant workflow. Replaces the old `.bat` au
 
 ## what it does
 
-- **Automate**: Hamad method (and faster / 55% fix variants). Starts Riot/Valorant flow pieces, refreshes emu seed, runs loader, creates a session. Optional auto-fix-55 and session recovery watchdogs.
-- **Account swap**: picks a saved account, signs in through Riot Client, then runs the automate path.
-- **Check for issues**: Riot not running, stay signed in off, core isolation, missing files. Auto-fix for most of those.
-- **Manual options**: run any single step alone. Toggle which ones show up in Settings.
+- **Automate**: Hamad method. Changes emu seed, runs loader, creates a session. Check for issues and close-all live on the same page.
+- **Account swap**: signs into the next saved account in rotation, then runs the Hamad method.
+- **Manual options**: run any single step alone. Pick which ones show up in Settings.
 - **Accounts**: save Riot logins, import/export `.txt`, session snapshots, login / forget session.
 - **Tools**:
   - Lookup (HenrikDev)
@@ -21,7 +20,7 @@ Tauri desktop app for the Sys-Info Valorant workflow. Replaces the old `.bat` au
   - Player compare
   - Saved players
 - **Configs**: community config board (browse, post, edit, react, comment). Discord or guest sign-in.
-- **Settings**: timings, file paths, Henrik keys, notifications, motion, feedback, about / what's new.
+- **Settings**: automation timings, file paths, auto-fix-55, session recovery, Account Swap pool, Henrik keys, notifications, motion, feedback, about / what's new.
 
 ## screenshots
 
