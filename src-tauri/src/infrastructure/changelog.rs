@@ -1,6 +1,6 @@
 use crate::error::AppError;
 
-const CHANGELOG_URL: &str = "https://raw.githubusercontent.com/yourpov/Sys-Assistant/refs/heads/main/Changelogs";
+const CHANGELOG_URL: &str = "https://raw.githubusercontent.com/yourpov/Sys-Assistant/refs/heads/main/Changelogs.md";
 
 pub async fn fetch_changelog() -> Result<String, AppError> {
     let response = reqwest::get(CHANGELOG_URL).await.map_err(|e| AppError::Network(format!("couldn't reach the changelog ({e})")))?;

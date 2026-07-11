@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s \"https://raw.githubusercontent.com/yourpov/Sys-Assistant/refs/heads/main/Changelogs\")",
+      "Bash(npx --yes playwright --version)",
+      "Bash('/c/Program Files \\(x86\\)/Microsoft/Edge/Application/msedge.exe' --headless=new --disable-gpu --no-sandbox '--screenshot=C:\\\\Users\\\\pov\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d----File-Backup-Files-Projects-Applications---Val-Sys-Automate\\\\beadd129-2916-4200-8f62-8bb5f840fdf3\\\\scratchpad/changelog-repro.png' --window-size=800,900 --virtual-time-budget=3000 'file:///C:\\\\Users\\\\pov\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d----File-Backup-Files-Projects-Applications---Val-Sys-Automate\\\\beadd129-2916-4200-8f62-8bb5f840fdf3\\\\scratchpad/changelog-repro.html')",
+      "Bash(sed 's/\\\\.changelog-entry {/.changelog-entry {\\\\n flex-shrink: 0;/' 'C:\\\\Users\\\\pov\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d----File-Backup-Files-Projects-Applications---Val-Sys-Automate\\\\beadd129-2916-4200-8f62-8bb5f840fdf3\\\\scratchpad/changelog-repro.html')",
+      "Bash('/c/Program Files \\(x86\\)/Microsoft/Edge/Application/msedge.exe' --headless=new --disable-gpu --no-sandbox '--screenshot=C:\\\\Users\\\\pov\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d----File-Backup-Files-Projects-Applications---Val-Sys-Automate\\\\beadd129-2916-4200-8f62-8bb5f840fdf3\\\\scratchpad/changelog-repro-fixed.png' --window-size=800,900 --virtual-time-budget=3000 'file:///C:\\\\Users\\\\pov\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d----File-Backup-Files-Projects-Applications---Val-Sys-Automate\\\\beadd129-2916-4200-8f62-8bb5f840fdf3\\\\scratchpad/changelog-repro-fixed.html')"
+    ]
+  }
+}
