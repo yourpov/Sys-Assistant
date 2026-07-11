@@ -1,19 +1,27 @@
 # Private Assistant
 
-A Tauri desktop app version of an automated `.bat` script. Same core workflow, with more methods and features.
+Tauri desktop app for the Sys-Info Valorant workflow. Replaces the old `.bat` automation with a real UI, more methods, and a tools suite.
+
+**v0.2.0** is the current release.
 
 ![automate page](https://i.imgur.com/0OuBqrd.png)
 
 ## what it does
 
-- **Automate**: starts Valorant, changes the emu seed, runs loader, and creates a session (the "hamad method"). Faster and "55% fix" variants are available for edge cases.
-- **Account swap**: signs into a different saved account before automating the process.
-- **Check for issues**: finds common problems (Riot Client not running, stay signed in off, core isolation off, missing files) and can auto-fix most of them.
-- **Manual options**: run any single step on its own; choose which actions appear in Settings.
-- **Accounts**: save and manage Riot logins, import/export `.txt`, session snapshots.
-- **Tools**: account lookup, live match info, match monitor alerts, owned collection browser, side-by-side player comparison, saved players.
-- **Configs**: browse, publish, edit, and react to community configs (Discord or guest sign-in).
-- **Settings**: automation timings, file locations, HenrikDev API keys, notifications, transparency, feedback, and changelogs (About tab).
+- **Automate**: Hamad method (and faster / 55% fix variants). Starts Riot/Valorant flow pieces, refreshes emu seed, runs loader, creates a session. Optional auto-fix-55 and session recovery watchdogs.
+- **Account swap**: picks a saved account, signs in through Riot Client, then runs the automate path.
+- **Check for issues**: Riot not running, stay signed in off, core isolation, missing files. Auto-fix for most of those.
+- **Manual options**: run any single step alone. Toggle which ones show up in Settings.
+- **Accounts**: save Riot logins, import/export `.txt`, session snapshots, login / forget session.
+- **Tools**:
+  - Lookup (HenrikDev)
+  - Match lobby / live match info
+  - Match monitor alerts
+  - Collection (owned skins, buddies, cards, sprays, titles from your Riot Client session)
+  - Player compare
+  - Saved players
+- **Configs**: community config board (browse, post, edit, react, comment). Discord or guest sign-in.
+- **Settings**: timings, file paths, Henrik keys, notifications, motion, feedback, about / what's new.
 
 ## screenshots
 
@@ -25,30 +33,29 @@ A Tauri desktop app version of an automated `.bat` script. Same core workflow, w
 
 ## running it
 
-Built with [Tauri](https://tauri.app/) (Windows only; relies on Windows-specific APIs).
+Windows only (Win32 automation + WebView2).
 
-Prebuilt binaries are under [Releases](../../releases).
+Prebuilt builds: [Releases](https://github.com/yourpov/Sys-Assistant/releases) (tag `v0.2.0`).
 
-From source you need:
+From source:
 
 - [Node.js](https://nodejs.org)
-- [Rust](https://www.rust-lang.org/tools/install) (MSVC toolchain)
-- [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
+- [Rust](https://www.rust-lang.org/tools/install) (MSVC)
+- [C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
 - [WebView2](https://developer.microsoft.com/microsoft-edge/webview2/)
 
 ```sh
 npm install
-npm run tauri dev      # dev build
-npm run tauri build    # release build
+npm run tauri dev
+npm run tauri build
 ```
 
-The exe must sit in a folder that already has `loader` and `tracex` in it (or subfolders). The app scans by filename.
+Put the exe next to your `loader` / `tracex` bits (or under subfolders). The app finds them by filename.
 
-## api keys
+## api keys and sessions
 
-Account lookups, live match info, and the match monitor need free [HenrikDev](https://api.henrikdev.xyz/dashboard/) API keys in Settings, Tools. Add more than one to spread rate limits.
-
-Collection needs the Riot Client open and signed in (not Valorant itself).
+- **HenrikDev** keys go in Settings → Tools. Lookups, match info, and the monitor need at least one free key. Add more if you hit rate limits.
+- **Collection** needs Riot Client open and signed in. Valorant itself can stay closed.
 
 ## development
 
@@ -57,4 +64,8 @@ npx tsc --noEmit
 cd src-tauri && cargo test && cargo clippy --all-targets
 ```
 
-CI runs TypeScript check, frontend build, `cargo test`, and `cargo clippy` on pushes to `main`.
+CI on `main`: TypeScript check, frontend build, `cargo test`, `cargo clippy`.
+
+## license
+
+GPL-3.0. See [LICENSE](./LICENSE).
