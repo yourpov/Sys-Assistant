@@ -1,8 +1,11 @@
 node_modules
 dist
+
 src-tauri/target
+src-tauri/sesh.exe
+
 tracex/
 private/
-src-tauri/sesh.exe
+
 assets/
 supabase/
