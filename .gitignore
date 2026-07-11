@@ -6,7 +6,3 @@ private/
 src-tauri/sesh.exe
 assets/
 supabase/
-.claude/
-agent-tools/
-*.key
-*.key.pub
