@@ -44,9 +44,9 @@ From source:
 - [WebView2](https://developer.microsoft.com/microsoft-edge/webview2/)
 
 ```sh
-npm install
-npm run tauri dev
-npm run tauri build
+npm install         # install deps
+npm run tauri dev   # dev build
+npm run tauri build # build exe
 ```
 
 Put the exe next to your `loader` / `tracex` bits (or under subfolders). The app finds them by filename.
