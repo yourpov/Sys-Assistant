@@ -1,6 +1,6 @@
 # v0.2.0
 
-July 10, 2026
+July 1, 2026
 
 ## Added
 
@@ -29,7 +29,7 @@ July 10, 2026
 
 ## Changed
 
-- new look across automate, accounts, tools, settings, and configs
+- new look: across automate, accounts, tools, settings, and configs
 - accounts page: easier to use with lots of accounts, search, and has more room to scroll
 - what's new: changelogs moved to settings instead of their own page
 - change seed: keeps your console log instead of clearing it
