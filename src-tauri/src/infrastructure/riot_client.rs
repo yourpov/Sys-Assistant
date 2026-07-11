@@ -2,18 +2,35 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde_json::Value;
-use sysinfo::{ProcessesToUpdate, System};
+use sysinfo::ProcessesToUpdate;
 
-use crate::application::ports::RiotClient;
+use crate::application::ports::{RiotLauncher, RiotRuntime, RiotSession};
 use crate::error::AppError;
+
+use super::process::PROCESS_TABLE;
+use super::riot_api::SessionState;
 
 const KNOWN_INSTALL_PATHS: [&str; 2] =
     ["Riot Games\\Riot Client\\RiotClientServices.exe", "Program Files\\Riot Games\\Riot Client\\RiotClientServices.exe"];
 
-pub struct WindowsRiotClient;
+pub struct WindowsRiotClient {
+    session_state: SessionState,
+}
+
+impl WindowsRiotClient {
+    pub fn new() -> Self {
+        Self { session_state: SessionState::new() }
+    }
+}
+
+impl Default for WindowsRiotClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 #[async_trait::async_trait]
-impl RiotClient for WindowsRiotClient {
+impl RiotRuntime for WindowsRiotClient {
     async fn running_path(&self) -> Option<PathBuf> {
         tokio::task::block_in_place(|| find_riot_client_process(|process| process.exe().map(PathBuf::from)))
     }
@@ -34,7 +51,10 @@ impl RiotClient for WindowsRiotClient {
     async fn launch_client(&self, path: &Path) -> Result<(), AppError> {
         Command::new(path).spawn().map(|_| ()).map_err(|e| AppError::Launch(path.display().to_string(), e.to_string()))
     }
+}
 
+#[async_trait::async_trait]
+impl RiotLauncher for WindowsRiotClient {
     async fn launch_valorant_direct(&self, riot_path: &Path) -> Result<(), AppError> {
         Command::new(riot_path)
             .args(["--launch-product=valorant", "--launch-patchline=live"])
@@ -45,6 +65,17 @@ impl RiotClient for WindowsRiotClient {
 
     async fn launch_valorant_via_api(&self) -> Result<(), AppError> {
         super::riot_api::launch_valorant().await
+    }
+}
+
+#[async_trait::async_trait]
+impl RiotSession for WindowsRiotClient {
+    async fn is_logged_in(&self) -> bool {
+        self.session_state.is_logged_in().await
+    }
+
+    fn invalidate_login_cache(&self) {
+        self.session_state.invalidate();
     }
 
     async fn stay_signed_in_enabled(&self) -> bool {
@@ -62,7 +93,7 @@ impl RiotClient for WindowsRiotClient {
             std::io::ErrorKind::NotFound => AppError::RiotClient(
                 "riot client's settings file doesn't exist yet. sign into the riot client manually once, then try again".into(),
             ),
-            _ => AppError::RiotClient(format!("couldn't read the riot client's settings file ({e})")),
+            _ => AppError::RiotClient(format!("couldn't read the riot client's settings file ({e})").into()),
         })?;
 
         let mut found = false;
@@ -88,12 +119,12 @@ impl RiotClient for WindowsRiotClient {
 
         tokio::fs::write(&path, updated.join("\n"))
             .await
-            .map_err(|e| AppError::RiotClient(format!("couldn't update the riot client's settings file ({e})")))
+            .map_err(|e| AppError::RiotClient(format!("couldn't update the riot client's settings file ({e})").into()))
     }
 }
 
 fn find_riot_client_process<T>(extract: impl FnOnce(&sysinfo::Process) -> Option<T>) -> Option<T> {
-    let mut system = System::new();
+    let mut system = PROCESS_TABLE.lock().unwrap();
     system.refresh_processes(ProcessesToUpdate::All, true);
     system.processes().values().find(|process| process.name().to_string_lossy().to_lowercase().contains("riotclientservices")).and_then(extract)
 }
@@ -122,4 +153,45 @@ fn scan_drives_for_riot_client() -> Option<PathBuf> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+    use sysinfo::System;
+
+    const ITERATIONS: u32 = 200;
+
+    #[test]
+    #[ignore]
+    fn process_table_rescan_cost_fresh_vs_reused() {
+        let fresh_start = Instant::now();
+        for _ in 0..ITERATIONS {
+            let mut system = System::new();
+            system.refresh_processes(ProcessesToUpdate::All, true);
+            std::hint::black_box(system.processes().len());
+        }
+        let fresh_elapsed = fresh_start.elapsed();
+
+        find_riot_client_process(|_| Some(()));
+
+        let reused_start = Instant::now();
+        for _ in 0..ITERATIONS {
+            std::hint::black_box(find_riot_client_process(|_| Some(())));
+        }
+        let reused_elapsed = reused_start.elapsed();
+
+        println!(
+            "fresh System::new()+refresh: {:>8.3}ms/call ({ITERATIONS} calls, {:.1}ms total)",
+            fresh_elapsed.as_secs_f64() * 1000.0 / ITERATIONS as f64,
+            fresh_elapsed.as_secs_f64() * 1000.0,
+        );
+        println!(
+            "reused System+refresh:       {:>8.3}ms/call ({ITERATIONS} calls, {:.1}ms total)",
+            reused_elapsed.as_secs_f64() * 1000.0 / ITERATIONS as f64,
+            reused_elapsed.as_secs_f64() * 1000.0,
+        );
+        assert!(reused_elapsed <= fresh_elapsed, "reusing the System instance should not be slower than rebuilding it every call");
+    }
 }

@@ -4,22 +4,22 @@ use std::process::Command;
 use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_SET_VALUE};
 use winreg::RegKey;
 
-use crate::application::ports::MachineConfig;
+use crate::application::ports::{EmuEnvironment, SystemHealth};
 use crate::error::AppError;
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-const TERMINAL_SERVER_KEY: &str = "SYSTEM\\CurrentControlSet\\Control\\Terminal Server";
-const VC_RUNTIME_KEY: &str = "SOFTWARE\\Microsoft\\VisualStudio\\14.0\\VC\\Runtimes\\x64";
-const ENVIRONMENT_KEY: &str = "SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment";
-const CORE_ISOLATION_KEY: &str = "SYSTEM\\CurrentControlSet\\Control\\DeviceGuard\\Scenarios\\HypervisorEnforcedCodeIntegrity";
-const WINDOWS_VERSION_KEY: &str = "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion";
+const TERMINAL_SERVER_KEY: &str    = "SYSTEM\\CurrentControlSet\\Control\\Terminal Server";
+const VC_RUNTIME_KEY: &str         = "SOFTWARE\\Microsoft\\VisualStudio\\14.0\\VC\\Runtimes\\x64";
+const ENVIRONMENT_KEY: &str        = "SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment";
+const CORE_ISOLATION_KEY: &str     = "SYSTEM\\CurrentControlSet\\Control\\DeviceGuard\\Scenarios\\HypervisorEnforcedCodeIntegrity";
+const WINDOWS_VERSION_KEY: &str    = "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion";
 const WINDOWS_11_BUILD_NUMBER: u32 = 22000;
 
 pub struct WindowsMachineConfig;
 
 #[async_trait::async_trait]
-impl MachineConfig for WindowsMachineConfig {
+impl SystemHealth for WindowsMachineConfig {
     fn is_rdp_disabled(&self) -> Result<bool, AppError> {
         let key = RegKey::predef(HKEY_LOCAL_MACHINE)
             .open_subkey(TERMINAL_SERVER_KEY)
@@ -59,7 +59,10 @@ impl MachineConfig for WindowsMachineConfig {
             .and_then(|build| build.parse::<u32>().ok())
             .is_some_and(|build| build >= WINDOWS_11_BUILD_NUMBER)
     }
+}
 
+#[async_trait::async_trait]
+impl EmuEnvironment for WindowsMachineConfig {
     fn current_emu_seed(&self) -> Option<String> {
         RegKey::predef(HKEY_LOCAL_MACHINE).open_subkey(ENVIRONMENT_KEY).ok()?.get_value::<String, _>("EMU_SEED").ok()
     }

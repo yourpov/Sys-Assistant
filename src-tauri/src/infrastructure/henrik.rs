@@ -4,20 +4,20 @@ use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 
-use crate::dto::{AccountLookupDto, AgentSummaryDto, MatchSummaryDto};
+use crate::dto::{AccountLookupDto, AccountLookupExtrasDto, AgentSummaryDto, MatchSummaryDto, SeasonStatsDto};
 use crate::error::AppError;
 
-const HENRIK_BASE: &str = "https://api.henrikdev.xyz";
+const HENRIK_BASE: &str       = "https://api.henrikdev.xyz";
 const MATCH_HISTORY_SIZE: u32 = 20;
 const TOP_AGENTS_SHOWN: usize = 3;
-const CACHE_TTL: Duration = Duration::from_secs(120);
+const CACHE_TTL: Duration     = Duration::from_secs(120);
 
 const RATE_LIMIT_MAX_REQUESTS: usize = 30;
-const RATE_LIMIT_WINDOW: Duration = Duration::from_secs(60);
+const RATE_LIMIT_WINDOW: Duration    = Duration::from_secs(60);
 
 struct KeyLimiter {
-    timestamps: Mutex<VecDeque<Instant>>,
-    blocked_until: Mutex<Option<Instant>>,
+    timestamps    : Mutex<VecDeque<Instant>>,
+    blocked_until : Mutex<Option<Instant>>,
 }
 
 impl KeyLimiter {
@@ -82,8 +82,15 @@ impl<T: Clone> TtlCache<T> {
     }
 
     fn get(&self, key: &str) -> Option<T> {
-        let entries = self.entries.lock().unwrap();
-        entries.get(key).filter(|(inserted, _)| inserted.elapsed() < CACHE_TTL).map(|(_, value)| value.clone())
+        let mut entries = self.entries.lock().unwrap();
+        let fresh = entries
+            .get(key)
+            .filter(|(inserted, _)| inserted.elapsed() < CACHE_TTL)
+            .map(|(_, value)| value.clone());
+        if fresh.is_none() {
+            entries.remove(key);
+        }
+        fresh
     }
 
     fn set(&self, key: String, value: T) {
@@ -93,9 +100,102 @@ impl<T: Clone> TtlCache<T> {
 
 static HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(reqwest::Client::new);
 
-static ACCOUNT_LOOKUP_CACHE: LazyLock<TtlCache<AccountLookupDto>> = LazyLock::new(TtlCache::new);
-static ACCOUNT_BY_PUUID_CACHE: LazyLock<TtlCache<(String, String, String)>> = LazyLock::new(TtlCache::new);
-static RANK_BY_PUUID_CACHE: LazyLock<TtlCache<(Option<String>, Option<i64>)>> = LazyLock::new(TtlCache::new);
+static ACCOUNT_LOOKUP_CACHE: LazyLock<TtlCache<AccountLookupDto>>                             = LazyLock::new(TtlCache::new);
+static ACCOUNT_PROFILE_CACHE: LazyLock<TtlCache<AccountLookupDto>>                            = LazyLock::new(TtlCache::new);
+static ACCOUNT_EXTRAS_CACHE: LazyLock<TtlCache<AccountLookupExtrasDto>>                       = LazyLock::new(TtlCache::new);
+static ACCOUNT_BY_PUUID_CACHE: LazyLock<TtlCache<(String, String, String)>>                   = LazyLock::new(TtlCache::new);
+static RANK_BY_PUUID_CACHE: LazyLock<TtlCache<(Option<String>, Option<i64>, Option<String>)>> = LazyLock::new(TtlCache::new);
+
+const MAPS_CACHE_TTL: Duration                                     = Duration::from_secs(3600);
+static MAPS_CACHE: LazyLock<Mutex<Option<(Instant, Vec<MapData>)>>> = LazyLock::new(|| Mutex::new(None));
+
+#[derive(Debug, Deserialize)]
+struct MapsResponse {
+    data: Vec<MapData>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct MapData {
+    #[serde(rename = "displayName")]
+    display_name : String,
+    #[serde(rename = "mapUrl")]
+    map_url      : String,
+    splash       : Option<String>,
+}
+
+async fn fetch_map_data() -> Vec<MapData> {
+    if let Some((inserted, maps)) = MAPS_CACHE.lock().unwrap().as_ref() {
+        if inserted.elapsed() < MAPS_CACHE_TTL {
+            return maps.clone();
+        }
+    }
+
+    let maps: Vec<MapData> = async {
+        let response = reqwest::get("https://valorant-api.com/v1/maps").await.ok()?;
+        let parsed = response.json::<MapsResponse>().await.ok()?;
+        Some(parsed.data)
+    }
+    .await
+    .unwrap_or_default();
+
+    *MAPS_CACHE.lock().unwrap() = Some((Instant::now(), maps.clone()));
+    maps
+}
+
+async fn fetch_maps() -> HashMap<String, String> {
+    fetch_map_data().await.into_iter().filter_map(|m| m.splash.map(|icon| (m.display_name.to_lowercase(), icon))).collect()
+}
+
+pub(crate) async fn fetch_map_display_name(codename: &str) -> Option<String> {
+    let needle = format!("/{}", codename.to_lowercase());
+    fetch_map_data().await.into_iter().find(|m| m.map_url.to_lowercase().ends_with(&needle)).map(|m| m.display_name)
+}
+
+const SEASONS_CACHE_TTL: Duration                                                = Duration::from_secs(3600);
+static SEASONS_CACHE: LazyLock<Mutex<Option<(Instant, HashMap<String, String>)>>> = LazyLock::new(|| Mutex::new(None));
+
+#[derive(Debug, Deserialize)]
+struct SeasonsResponse {
+    data: Vec<SeasonEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SeasonEntry {
+    uuid         : String,
+    #[serde(rename = "displayName")]
+    display_name : String,
+    #[serde(rename = "parentUuid")]
+    parent_uuid  : Option<String>,
+}
+
+async fn fetch_seasons() -> HashMap<String, String> {
+    if let Some((inserted, seasons)) = SEASONS_CACHE.lock().unwrap().as_ref() {
+        if inserted.elapsed() < SEASONS_CACHE_TTL {
+            return seasons.clone();
+        }
+    }
+
+    let seasons: HashMap<String, String> = async {
+        let response = reqwest::get("https://valorant-api.com/v1/seasons").await.ok()?;
+        let parsed = response.json::<SeasonsResponse>().await.ok()?;
+        let by_uuid: HashMap<String, SeasonEntry> = parsed.data.into_iter().map(|s| (s.uuid.clone(), s)).collect();
+        Some(
+            by_uuid
+                .values()
+                .filter_map(|entry| {
+                    let parent_uuid = entry.parent_uuid.as_ref()?;
+                    let episode = by_uuid.get(parent_uuid)?;
+                    Some((entry.uuid.to_lowercase(), format!("{} {}", episode.display_name, entry.display_name)))
+                })
+                .collect(),
+        )
+    }
+    .await
+    .unwrap_or_default();
+
+    *SEASONS_CACHE.lock().unwrap() = Some((Instant::now(), seasons.clone()));
+    seasons
+}
 
 #[derive(Debug, Deserialize)]
 struct AccountResponse {
@@ -104,12 +204,12 @@ struct AccountResponse {
 
 #[derive(Debug, Deserialize)]
 struct AccountData {
-    region: String,
-    account_level: u32,
-    name: String,
-    tag: String,
-    card: Card,
-    last_update: String,
+    region        : String,
+    account_level : u32,
+    name          : String,
+    tag           : String,
+    card          : Card,
+    last_update   : String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -124,16 +224,16 @@ struct MmrResponse {
 
 #[derive(Debug, Deserialize)]
 struct MmrData {
-    current_data: Option<CurrentData>,
-    highest_rank: Option<HighestRank>,
+    current_data : Option<CurrentData>,
+    highest_rank : Option<HighestRank>,
 }
 
 #[derive(Debug, Deserialize)]
 struct CurrentData {
-    currenttierpatched: Option<String>,
-    ranking_in_tier: Option<i64>,
-    elo: Option<i64>,
-    images: Option<Images>,
+    currenttierpatched : Option<String>,
+    ranking_in_tier    : Option<i64>,
+    elo                : Option<i64>,
+    images             : Option<Images>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -153,16 +253,16 @@ struct MatchesResponse {
 
 #[derive(Debug, Deserialize)]
 struct MatchData {
-    metadata: MatchMetadata,
-    players: MatchPlayers,
-    teams: MatchTeams,
+    metadata : MatchMetadata,
+    players  : MatchPlayers,
+    teams    : MatchTeams,
 }
 
 #[derive(Debug, Deserialize)]
 struct MatchMetadata {
-    map: String,
-    mode: Option<String>,
-    game_start: i64,
+    map        : String,
+    mode       : Option<String>,
+    game_start : i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -172,12 +272,12 @@ struct MatchPlayers {
 
 #[derive(Debug, Deserialize)]
 struct MatchPlayer {
-    name: String,
-    tag: String,
-    team: Option<String>,
-    character: Option<String>,
-    assets: Option<MatchPlayerAssets>,
-    stats: MatchPlayerStats,
+    name      : String,
+    tag       : String,
+    team      : Option<String>,
+    character : Option<String>,
+    assets    : Option<MatchPlayerAssets>,
+    stats     : MatchPlayerStats,
 }
 
 #[derive(Debug, Deserialize)]
@@ -192,72 +292,260 @@ struct AgentIcon {
 
 #[derive(Debug, Deserialize)]
 struct MatchPlayerStats {
-    kills: i64,
-    deaths: i64,
-    assists: i64,
-    headshots: i64,
-    bodyshots: i64,
-    legshots: i64,
+    kills     : i64,
+    deaths    : i64,
+    assists   : i64,
+    headshots : i64,
+    bodyshots : i64,
+    legshots  : i64,
 }
 
 #[derive(Debug, Deserialize)]
 struct MatchTeams {
-    red: Option<MatchTeamResult>,
-    blue: Option<MatchTeamResult>,
+    red  : Option<MatchTeamResult>,
+    blue : Option<MatchTeamResult>,
 }
 
 #[derive(Debug, Deserialize)]
 struct MatchTeamResult {
-    has_won: Option<bool>,
-    rounds_won: Option<i64>,
+    has_won    : Option<bool>,
+    rounds_won : Option<i64>,
 }
 
-pub async fn fetch_account_lookup(api_keys: &[String], name: &str, tag: &str) -> Result<AccountLookupDto, AppError> {
-    let cache_key = format!("{}#{}", name.to_lowercase(), tag.to_lowercase());
+#[derive(Debug, Deserialize)]
+struct MmrV3Response {
+    data: MmrV3Data,
+}
+
+#[derive(Debug, Deserialize)]
+struct MmrV3Data {
+    seasonal: Vec<SeasonalMmr>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SeasonalMmr {
+    season                : SeasonRef,
+    wins                  : i64,
+    games                 : i64,
+    end_tier              : TierRef,
+    leaderboard_placement : Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SeasonRef {
+    id: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct TierRef {
+    name: String,
+}
+
+async fn fetch_seasonal_mmr(api_keys: &[String], region: &str, name: &str, tag: &str) -> Vec<SeasonalMmr> {
+    let Ok(url) = build_url(&["valorant", "v3", "mmr", region, "pc", name, tag]) else { return Vec::new() };
+    let response: Result<MmrV3Response, AppError> = fetch_json(&HTTP_CLIENT, api_keys, url).await;
+    response.map(|r| r.data.seasonal).unwrap_or_default()
+}
+
+fn lookup_cache_key(name: &str, tag: &str) -> String {
+    format!("{}#{}", name.to_lowercase(), tag.to_lowercase())
+}
+
+fn empty_extras() -> AccountLookupExtrasDto {
+    AccountLookupExtrasDto {
+        games_played   : 0,
+        win_rate       : 0,
+        kda            : 0.0,
+        avg_hs_percent : 0,
+        total_kills    : 0,
+        total_deaths   : 0,
+        total_assists  : 0,
+        top_agents     : Vec::new(),
+        recent_matches : Vec::new(),
+        seasons        : Vec::new(),
+    }
+}
+
+fn profile_from_account(account: AccountResponse, rank: Option<MmrResponse>) -> AccountLookupDto {
+    let current = rank.as_ref().and_then(|r| r.data.current_data.as_ref());
+    let highest = rank.as_ref().and_then(|r| r.data.highest_rank.as_ref());
+    let extras = empty_extras();
+    AccountLookupDto {
+        name           : account.data.name,
+        tag            : account.data.tag,
+        region         : account.data.region,
+        account_level  : account.data.account_level,
+        card_url       : account.data.card.large.unwrap_or_default(),
+        last_update    : account.data.last_update,
+        rank           : current.and_then(|c| c.currenttierpatched.clone()),
+        rank_icon_url  : current.and_then(|c| c.images.as_ref()).and_then(|i| i.large.clone()),
+        rr             : current.and_then(|c| c.ranking_in_tier),
+        elo            : current.and_then(|c| c.elo),
+        peak_rank      : highest.and_then(|h| h.patched_tier.clone()),
+        games_played   : extras.games_played,
+        win_rate       : extras.win_rate,
+        kda            : extras.kda,
+        avg_hs_percent : extras.avg_hs_percent,
+        total_kills    : extras.total_kills,
+        total_deaths   : extras.total_deaths,
+        total_assists  : extras.total_assists,
+        top_agents     : extras.top_agents,
+        recent_matches : extras.recent_matches,
+        seasons        : extras.seasons,
+    }
+}
+
+fn merge_lookup(profile: AccountLookupDto, extras: AccountLookupExtrasDto) -> AccountLookupDto {
+    AccountLookupDto {
+        games_played   : extras.games_played,
+        win_rate       : extras.win_rate,
+        kda            : extras.kda,
+        avg_hs_percent : extras.avg_hs_percent,
+        total_kills    : extras.total_kills,
+        total_deaths   : extras.total_deaths,
+        total_assists  : extras.total_assists,
+        top_agents     : extras.top_agents,
+        recent_matches : extras.recent_matches,
+        seasons        : extras.seasons,
+        ..profile
+    }
+}
+
+async fn build_lookup_extras(api_keys: &[String], region: &str, name: &str, tag: &str) -> AccountLookupExtrasDto {
+    let mut matches_url = match build_url(&["valorant", "v3", "matches", region, name, tag]) {
+        Ok(url) => url,
+        Err(_) => return empty_extras(),
+    };
+    matches_url.query_pairs_mut().append_pair("size", &MATCH_HISTORY_SIZE.to_string());
+
+    let (matches, maps, seasons_labels, seasonal_mmr) = tokio::join!(
+        async {
+            fetch_json::<MatchesResponse>(&HTTP_CLIENT, api_keys, matches_url)
+                .await
+                .ok()
+                .map(|m| m.data.into_iter().filter_map(|raw| serde_json::from_value::<MatchData>(raw).ok()).collect::<Vec<MatchData>>())
+                .unwrap_or_default()
+        },
+        fetch_maps(),
+        fetch_seasons(),
+        fetch_seasonal_mmr(api_keys, region, name, tag),
+    );
+
+    let history = summarize_matches(&matches, name, tag, &maps);
+    let mut seasons: Vec<SeasonStatsDto> = seasonal_mmr
+        .into_iter()
+        .filter(|s| s.games > 0)
+        .map(|s| {
+            let win_rate = if s.games > 0 { (s.wins * 100) / s.games } else { 0 };
+            let season_label = seasons_labels.get(&s.season.id.to_lowercase()).cloned().unwrap_or_else(|| s.season.id.clone());
+            SeasonStatsDto {
+                season_id: s.season.id,
+                season_label,
+                rank: s.end_tier.name,
+                wins: s.wins,
+                games: s.games,
+                win_rate,
+                leaderboard_placement: s.leaderboard_placement,
+            }
+        })
+        .collect();
+    seasons.reverse();
+
+    AccountLookupExtrasDto {
+        games_played   : history.games_played,
+        win_rate       : history.win_rate,
+        kda            : history.kda,
+        avg_hs_percent : history.avg_hs_percent,
+        total_kills    : history.total_kills,
+        total_deaths   : history.total_deaths,
+        total_assists  : history.total_assists,
+        top_agents     : history.top_agents,
+        recent_matches : history.recent_matches,
+        seasons,
+    }
+}
+
+async fn resolve_account(api_keys: &[String], name: &str, tag: &str) -> Result<AccountResponse, AppError> {
+    let account_url = build_url(&["valorant", "v1", "account", name, tag])?;
+    fetch_json(&HTTP_CLIENT, api_keys, account_url).await
+}
+
+pub async fn fetch_account_profile(api_keys: &[String], name: &str, tag: &str) -> Result<AccountLookupDto, AppError> {
+    let cache_key = lookup_cache_key(name, tag);
     if let Some(cached) = ACCOUNT_LOOKUP_CACHE.get(&cache_key) {
         return Ok(cached);
     }
+    if let Some(cached) = ACCOUNT_PROFILE_CACHE.get(&cache_key) {
+        return Ok(cached);
+    }
 
-    let account_url = build_url(&["valorant", "v1", "account", name, tag])?;
-    let account: AccountResponse = fetch_json(&HTTP_CLIENT, api_keys, account_url).await?;
+    let account = resolve_account(api_keys, name, tag).await?;
     let region = account.data.region.clone();
-
-    let mmr_url = build_url(&["valorant", "v2", "mmr", &region, name, tag])?;
+    let lookup_name = account.data.name.clone();
+    let lookup_tag = account.data.tag.clone();
+    let mmr_url = build_url(&["valorant", "v2", "mmr", &region, &lookup_name, &lookup_tag])?;
     let rank: Option<MmrResponse> = fetch_json(&HTTP_CLIENT, api_keys, mmr_url).await.ok();
+    let result = profile_from_account(account, rank);
+    ACCOUNT_PROFILE_CACHE.set(cache_key, result.clone());
+    Ok(result)
+}
 
-    let current = rank.as_ref().and_then(|r| r.data.current_data.as_ref());
-    let highest = rank.as_ref().and_then(|r| r.data.highest_rank.as_ref());
+pub async fn fetch_account_extras(api_keys: &[String], name: &str, tag: &str, region: &str) -> Result<AccountLookupExtrasDto, AppError> {
+    let cache_key = lookup_cache_key(name, tag);
+    if let Some(cached) = ACCOUNT_LOOKUP_CACHE.get(&cache_key) {
+        return Ok(AccountLookupExtrasDto {
+            games_played: cached.games_played,
+            win_rate: cached.win_rate,
+            kda: cached.kda,
+            avg_hs_percent: cached.avg_hs_percent,
+            total_kills: cached.total_kills,
+            total_deaths: cached.total_deaths,
+            total_assists: cached.total_assists,
+            top_agents: cached.top_agents,
+            recent_matches: cached.recent_matches,
+            seasons: cached.seasons,
+        });
+    }
+    if let Some(cached) = ACCOUNT_EXTRAS_CACHE.get(&cache_key) {
+        return Ok(cached);
+    }
 
-    let mut matches_url = build_url(&["valorant", "v3", "matches", &region, name, tag])?;
-    matches_url.query_pairs_mut().append_pair("size", &MATCH_HISTORY_SIZE.to_string());
-    let matches: Option<MatchesResponse> = fetch_json(&HTTP_CLIENT, api_keys, matches_url).await.ok();
-    let parsed_matches: Vec<MatchData> = matches
-        .map(|m| m.data.into_iter().filter_map(|raw| serde_json::from_value::<MatchData>(raw).ok()).collect())
-        .unwrap_or_default();
-    let history = summarize_matches(&parsed_matches, name, tag);
+    let extras = build_lookup_extras(api_keys, region, name, tag).await;
+    ACCOUNT_EXTRAS_CACHE.set(cache_key.clone(), extras.clone());
+    if let Some(profile) = ACCOUNT_PROFILE_CACHE.get(&cache_key) {
+        let merged = merge_lookup(profile, extras.clone());
+        ACCOUNT_LOOKUP_CACHE.set(cache_key, merged);
+    }
+    Ok(extras)
+}
 
-    let result = AccountLookupDto {
-        name: account.data.name,
-        tag: account.data.tag,
-        region,
-        account_level: account.data.account_level,
-        card_url: account.data.card.large.unwrap_or_default(),
-        last_update: account.data.last_update,
-        rank: current.and_then(|c| c.currenttierpatched.clone()),
-        rank_icon_url: current.and_then(|c| c.images.as_ref()).and_then(|i| i.large.clone()),
-        rr: current.and_then(|c| c.ranking_in_tier),
-        elo: current.and_then(|c| c.elo),
-        peak_rank: highest.and_then(|h| h.patched_tier.clone()),
-        games_played: history.games_played,
-        win_rate: history.win_rate,
-        kda: history.kda,
-        avg_hs_percent: history.avg_hs_percent,
-        total_kills: history.total_kills,
-        total_deaths: history.total_deaths,
-        total_assists: history.total_assists,
-        top_agents: history.top_agents,
-        recent_matches: history.recent_matches,
-    };
+pub async fn fetch_account_lookup(api_keys: &[String], name: &str, tag: &str) -> Result<AccountLookupDto, AppError> {
+    let cache_key = lookup_cache_key(name, tag);
+    if let Some(cached) = ACCOUNT_LOOKUP_CACHE.get(&cache_key) {
+        return Ok(cached);
+    }
+    if let Some(cached_profile) = ACCOUNT_PROFILE_CACHE.get(&cache_key) {
+        let extras = fetch_account_extras(api_keys, &cached_profile.name, &cached_profile.tag, &cached_profile.region).await?;
+        let result = merge_lookup(cached_profile, extras);
+        ACCOUNT_LOOKUP_CACHE.set(cache_key, result.clone());
+        return Ok(result);
+    }
+
+    let account = resolve_account(api_keys, name, tag).await?;
+    let region = account.data.region.clone();
+    let lookup_name = account.data.name.clone();
+    let lookup_tag = account.data.tag.clone();
+    let mmr_url = build_url(&["valorant", "v2", "mmr", &region, &lookup_name, &lookup_tag])?;
+
+    let (rank, extras) = tokio::join!(
+        async { fetch_json::<MmrResponse>(&HTTP_CLIENT, api_keys, mmr_url).await.ok() },
+        build_lookup_extras(api_keys, &region, &lookup_name, &lookup_tag),
+    );
+    let profile = profile_from_account(account, rank);
+    ACCOUNT_PROFILE_CACHE.set(cache_key.clone(), profile.clone());
+    ACCOUNT_EXTRAS_CACHE.set(cache_key.clone(), extras.clone());
+
+    let result = merge_lookup(profile, extras);
     ACCOUNT_LOOKUP_CACHE.set(cache_key, result.clone());
     Ok(result)
 }
@@ -273,7 +561,11 @@ pub(crate) async fn fetch_account_by_puuid(api_keys: &[String], puuid: &str) -> 
     Ok(result)
 }
 
-pub(crate) async fn fetch_rank_by_puuid(api_keys: &[String], region: &str, puuid: &str) -> Result<(Option<String>, Option<i64>), AppError> {
+pub(crate) async fn fetch_rank_by_puuid(
+    api_keys: &[String],
+    region: &str,
+    puuid: &str,
+) -> Result<(Option<String>, Option<i64>, Option<String>), AppError> {
     let cache_key = format!("{region}:{puuid}");
     if let Some(cached) = RANK_BY_PUUID_CACHE.get(&cache_key) {
         return Ok(cached);
@@ -281,7 +573,11 @@ pub(crate) async fn fetch_rank_by_puuid(api_keys: &[String], region: &str, puuid
     let url = build_url(&["valorant", "v2", "by-puuid", "mmr", region, puuid])?;
     let mmr: MmrResponse = fetch_json(&HTTP_CLIENT, api_keys, url).await?;
     let current = mmr.data.current_data.as_ref();
-    let result = (current.and_then(|c| c.currenttierpatched.clone()), current.and_then(|c| c.ranking_in_tier));
+    let result = (
+        current.and_then(|c| c.currenttierpatched.clone()),
+        current.and_then(|c| c.ranking_in_tier),
+        current.and_then(|c| c.images.as_ref()).and_then(|i| i.large.clone()),
+    );
     RANK_BY_PUUID_CACHE.set(cache_key, result.clone());
     Ok(result)
 }
@@ -294,26 +590,26 @@ fn build_url(segments: &[&str]) -> Result<reqwest::Url, AppError> {
 
 #[derive(Default)]
 struct MatchHistorySummary {
-    games_played: i64,
-    win_rate: i64,
-    kda: f64,
-    avg_hs_percent: i64,
-    total_kills: i64,
-    total_deaths: i64,
-    total_assists: i64,
-    top_agents: Vec<AgentSummaryDto>,
-    recent_matches: Vec<MatchSummaryDto>,
+    games_played   : i64,
+    win_rate       : i64,
+    kda            : f64,
+    avg_hs_percent : i64,
+    total_kills    : i64,
+    total_deaths   : i64,
+    total_assists  : i64,
+    top_agents     : Vec<AgentSummaryDto>,
+    recent_matches : Vec<MatchSummaryDto>,
 }
 
 struct AgentTally {
-    agent_icon_url: String,
-    games: i64,
-    wins: i64,
-    kills: i64,
-    deaths: i64,
+    agent_icon_url : String,
+    games          : i64,
+    wins           : i64,
+    kills          : i64,
+    deaths         : i64,
 }
 
-fn summarize_matches(matches: &[MatchData], name: &str, tag: &str) -> MatchHistorySummary {
+fn summarize_matches(matches: &[MatchData], name: &str, tag: &str, maps: &HashMap<String, String>) -> MatchHistorySummary {
     let mut total_kills = 0;
     let mut total_deaths = 0;
     let mut total_assists = 0;
@@ -384,8 +680,11 @@ fn summarize_matches(matches: &[MatchData], name: &str, tag: &str) -> MatchHisto
         tally.kills += player.stats.kills;
         tally.deaths += player.stats.deaths;
 
+        let map_icon_url = maps.get(&game.metadata.map.to_lowercase()).cloned().unwrap_or_default();
+
         recent_matches.push(MatchSummaryDto {
             map: game.metadata.map.clone(),
+            map_icon_url,
             mode: game.metadata.mode.clone().unwrap_or_else(|| "Custom".to_string()),
             date: game.metadata.game_start * 1000,
             result: result.to_string(),
@@ -422,7 +721,7 @@ fn summarize_matches(matches: &[MatchData], name: &str, tag: &str) -> MatchHisto
     MatchHistorySummary { games_played, win_rate, kda, avg_hs_percent, total_kills, total_deaths, total_assists, top_agents, recent_matches }
 }
 
-const MAX_RATE_LIMIT_RETRIES: u32 = 6;
+const MAX_RATE_LIMIT_RETRIES: u32   = 6;
 const DEFAULT_RETRY_AFTER: Duration = Duration::from_secs(5);
 
 async fn fetch_json<T: serde::de::DeserializeOwned>(client: &reqwest::Client, api_keys: &[String], url: reqwest::Url) -> Result<T, AppError> {

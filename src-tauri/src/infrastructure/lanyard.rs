@@ -4,29 +4,29 @@ use serde::Deserialize;
 use crate::dto::AppCreditDto;
 use crate::error::AppError;
 
-const CREDIT_DISCORD_ID: &str = "1470172610636808425";
+const CREDIT_DISCORD_ID: &str         = "1470172610636808425";
 const CUSTOM_STATUS_ACTIVITY_TYPE: u8 = 4;
 
 #[derive(Debug, Deserialize)]
 struct LanyardResponse {
-    success: bool,
-    data: Option<LanyardData>,
+    success : bool,
+    data    : Option<LanyardData>,
 }
 
 #[derive(Debug, Deserialize)]
 struct LanyardData {
-    discord_user: DiscordUser,
-    discord_status: String,
-    activities: Vec<Activity>,
+    discord_user   : DiscordUser,
+    discord_status : String,
+    activities     : Vec<Activity>,
 }
 
 #[derive(Debug, Deserialize)]
 struct DiscordUser {
-    id: String,
-    username: String,
-    global_name: Option<String>,
-    avatar: Option<String>,
-    avatar_decoration_data: Option<AvatarDecoration>,
+    id                     : String,
+    username               : String,
+    global_name            : Option<String>,
+    avatar                 : Option<String>,
+    avatar_decoration_data : Option<AvatarDecoration>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -37,8 +37,8 @@ struct AvatarDecoration {
 #[derive(Debug, Deserialize)]
 struct Activity {
     #[serde(rename = "type")]
-    kind: u8,
-    state: Option<String>,
+    kind  : u8,
+    state : Option<String>,
 }
 
 pub async fn fetch_app_credit() -> Result<AppCreditDto, AppError> {
@@ -66,8 +66,8 @@ pub async fn fetch_app_credit() -> Result<AppCreditDto, AppError> {
     let activity_text = data.activities.iter().find(|a| a.kind == CUSTOM_STATUS_ACTIVITY_TYPE).and_then(|a| a.state.clone());
 
     Ok(AppCreditDto {
-        username: data.discord_user.username.clone(),
-        display_name: data.discord_user.global_name.unwrap_or(data.discord_user.username),
+        username     : data.discord_user.username.clone(),
+        display_name : data.discord_user.global_name.unwrap_or(data.discord_user.username),
         avatar_data_url,
         decoration_data_url,
         status: data.discord_status,

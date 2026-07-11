@@ -1,8 +1,6 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkflowAction {
-    StartWithRestart,
-    StartWithoutRestart,
-    Fix55Error,
+    Start,
     CloseAll,
 }
 

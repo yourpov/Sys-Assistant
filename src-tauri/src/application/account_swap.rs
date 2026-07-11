@@ -1,7 +1,7 @@
 use rand::seq::SliceRandom;
 
 use super::account_login;
-use super::ports::{AccountStore, LogLevel, Ports, RiotLogin, SessionSnapshotStore};
+use super::ports::{AccountStore, Ports, RiotLogin, SessionSnapshotStore};
 use super::run_workflow::{self, StopToken};
 use crate::domain::Settings;
 use crate::error::AppError;
@@ -15,18 +15,19 @@ pub fn pick_next_account(pool: &[String], last_used: Option<&str>) -> Option<Str
 }
 
 pub async fn run(
-    pool: &[String],
-    last_used: Option<&str>,
-    accounts: &dyn AccountStore,
-    sessions: &dyn SessionSnapshotStore,
+    pool      : &[String],
+    last_used : Option<&str>,
+    accounts  : &dyn AccountStore,
+    sessions  : &dyn SessionSnapshotStore,
     riot_login: &dyn RiotLogin,
-    settings: &Settings,
-    ports: &Ports,
-    stop: &StopToken,
+    settings  : &Settings,
+    ports     : &Ports,
+    stop      : &StopToken,
 ) -> Result<String, AppError> {
     let account_id = pick_next_account(pool, last_used)
-        .ok_or_else(|| AppError::Account("no accounts selected for account swap. pick at least one account and try again".into()))?;
+        .ok_or_else(|| AppError::Account("no accounts chosen for Account Swap. select at least one in Settings, Automation and try again".into()))?;
 
+    run_workflow::check_cancelled(stop)?;
     run_workflow::find_required(ports, run_workflow::LOADER_EXE, settings.loader_path.as_deref())?;
     run_workflow::ensure_sesh(ports, settings, stop).await?;
 
@@ -34,12 +35,11 @@ pub async fn run(
     account_login::login(&account_id, accounts, sessions, riot_login, ports, stop).await?;
 
     run_workflow::wait_for_riot_to_settle(ports, stop).await?;
-    run_workflow::run_emu_installer(ports, settings, stop).await?;
+    if settings.auto_fix_55_enabled {
+        run_workflow::apply_55_fix(ports, settings, stop).await?;
+    }
 
-    ports.machine.flush_dns().await?;
-    ports.sink.emit_line(LogLevel::Ok, "dns cache flushed");
-
-    run_workflow::run_loader(ports, settings).await?;
+    run_workflow::run_loader(ports, settings, stop).await?;
     run_workflow::open_valorant(ports, settings, stop).await?;
     run_workflow::start_session(ports, settings, stop, true).await?;
 

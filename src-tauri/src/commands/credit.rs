@@ -1,7 +1,8 @@
+use crate::application::credit;
 use crate::dto::AppCreditDto;
-use crate::infrastructure::lanyard;
+use crate::invoke_error::{InvokeErrorDto, invoke_err};
 
 #[tauri::command]
-pub async fn get_app_credit() -> Result<AppCreditDto, String> {
-    lanyard::fetch_app_credit().await.map_err(|e| e.to_string())
+pub async fn get_app_credit() -> Result<AppCreditDto, InvokeErrorDto> {
+    credit::fetch_app_credit().await.map_err(invoke_err)
 }

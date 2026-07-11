@@ -20,6 +20,11 @@
     "core:webview:default",
     "dialog:default",
     "dialog:allow-open",
-    "opener:default"
+    "dialog:allow-save",
+    "opener:default",
+    "notification:default",
+    "updater:default",
+    "process:allow-restart",
+    "deep-link:default"
   ]
 }

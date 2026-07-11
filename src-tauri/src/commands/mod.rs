@@ -1,6 +1,12 @@
 pub mod accounts;
+pub mod applog;
+pub mod auth;
+pub mod community_configs;
 pub mod changelog;
+pub mod collection;
 pub mod credit;
+pub mod feedback;
 pub mod keybind;
+pub mod saved_players;
 pub mod tools;
 pub mod workflow;

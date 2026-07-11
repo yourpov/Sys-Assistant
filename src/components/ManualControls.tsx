@@ -1,83 +1,123 @@
-import { AnimatePresence, motion } from 'framer-motion';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect } from 'react';
 
-import { getSettings } from '../api/settings';
-import { MANUAL_ACTIONS } from '../constants/manualActions';
-import type { ManualAction } from '../types';
-import { BASE_WINDOW_SIZE, tweenWindowSize } from '../utils/windowSize';
+import { MANUAL_ACTIONS }            from '../constants/manualActions';
+import { useEnabledManualActions }   from '../hooks/useEnabledManualActions';
+import type { AutomateLayoutReport } from '../utils/automateLayout';
+import type { ManualAction }         from '../types';
+import { AutomateExpandable }        from './AutomateExpandable';
+import { AutomateSection }           from './AutomateSection';
+import { Tooltip }                   from './Tooltip';
 
-interface Props {
-  disabled: boolean;
-  onSelect: (action: ManualAction) => void;
+interface ManualControlsProps {
+  disabled        : boolean;
+  onSelect        : (action: ManualAction) => void;
+  onLayoutReport? : (patch: Partial<AutomateLayoutReport>) => void;
 }
 
-export function ManualControls({ disabled, onSelect }: Props) {
-  const [open, setOpen] = useState(false);
-  const [enabled, setEnabled] = useState<ManualAction[] | null>(null);
-  const gridRef = useRef<HTMLDivElement>(null);
+function ManualActionButton({
+  label,
+  hint,
+  disabled,
+  onClick,
+}: {
+  label   : string;
+  hint    : string;
+  disabled: boolean;
+  onClick : () => void;
+}) {
+  return (
+    <Tooltip content = {hint}>
+    <button  type    = "button" className = "manual-control-button" disabled = {disabled} onClick = {onClick}>
+        {label}
+      </button>
+    </Tooltip>
+  );
+}
+
+function ManualGrid({
+  actions,
+  disabled,
+  onSelect,
+}: {
+  actions : typeof MANUAL_ACTIONS;
+  disabled: boolean;
+  onSelect: (action: ManualAction) => void;
+}) {
+  return (
+    <div className = "manual-controls-grid" data-tauri-drag-region>
+      {actions.map(({ action, label, hint }) => (
+        <ManualActionButton
+          key      = {action}
+          label    = {label}
+          hint     = {hint}
+          disabled = {disabled}
+          onClick  = {() => onSelect(action)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function SingleManualPanel({
+  label,
+  hint,
+  disabled,
+  onClick,
+}: {
+  label   : string;
+  hint    : string;
+  disabled: boolean;
+  onClick : () => void;
+}) {
+  return (
+    <AutomateSection    title = "Manual step" hint = "Runs a single action enabled in Settings.">
+    <ManualActionButton label = {label} hint       = {hint} disabled = {disabled} onClick = {onClick} />
+    </AutomateSection>
+  );
+}
+
+export function ManualControls({ disabled, onSelect, onLayoutReport }: ManualControlsProps) {
+  const enabled = useEnabledManualActions();
+  const actions = enabled ? MANUAL_ACTIONS.filter(({ action }) => enabled.includes(action)) : [];
+
+  const reportManualLayout = useCallback(
+    (open: boolean) => {
+      if (!onLayoutReport || actions.length <= 1) return;
+      onLayoutReport({ manualOptions: { open, actionCount: actions.length } });
+    },
+    [actions.length, onLayoutReport],
+  );
 
   useEffect(() => {
-    getSettings()
-      .then((settings) => setEnabled(settings.manualActionsEnabled))
-      .catch(() => setEnabled([]));
-  }, []);
+    if (!onLayoutReport) return;
+    if (actions.length <= 1) onLayoutReport({ manualOptions: undefined });
+  }, [actions.length, onLayoutReport]);
 
-  useEffect(() => {
-    if (!open) {
-      tweenWindowSize(BASE_WINDOW_SIZE.width, BASE_WINDOW_SIZE.height);
-      return;
-    }
-    const extra = (gridRef.current?.scrollHeight ?? 0) + 8;
-    tweenWindowSize(BASE_WINDOW_SIZE.width, BASE_WINDOW_SIZE.height + extra);
-  }, [open, enabled]);
-
-  useEffect(() => {
-    return () => {
-      tweenWindowSize(BASE_WINDOW_SIZE.width, BASE_WINDOW_SIZE.height);
-    };
-  }, []);
+  useEffect(
+    () => () => {
+      onLayoutReport?.({ manualOptions: undefined });
+    },
+    [onLayoutReport],
+  );
 
   if (!enabled) return null;
-
-  const actions = MANUAL_ACTIONS.filter(({ action }) => enabled.includes(action));
-
   if (actions.length === 0) return null;
 
   if (actions.length === 1) {
-    const { action, label, hint } = actions[0];
-    return (
-      <div className="manual-controls" data-tauri-drag-region>
-        <button className="manual-control-button" disabled={disabled} onClick={() => onSelect(action)} title={hint}>
-          {label}
-        </button>
-      </div>
-    );
+    const  { action, label, hint }  = actions[0];
+    return <SingleManualPanel label = {label} hint = {hint} disabled = {disabled} onClick = {() => onSelect(action)} />;
   }
 
   return (
-    <div className="manual-controls" data-tauri-drag-region>
-      <button className="manual-controls-toggle" onClick={() => setOpen((prev) => !prev)} aria-expanded={open}>
-        {open ? 'Hide manual options' : 'Manual options'}
-      </button>
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            className="manual-controls-grid"
-            ref={gridRef}
-            data-tauri-drag-region
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.16 }}
-          >
-            {actions.map(({ action, label, hint }) => (
-              <button key={action} className="manual-control-button" disabled={disabled} onClick={() => onSelect(action)} title={hint}>
-                {label}
-              </button>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
+    <AutomateExpandable
+      sectionId = "manual-options"
+      title     = "Manual options"
+      hint      = "Run the steps manually."
+      persist
+      disabled     = {disabled}
+      onOpenChange = {reportManualLayout}
+    >
+      <ManualGrid actions = {actions} disabled = {disabled} onSelect = {onSelect} />
+    </AutomateExpandable>
   );
 }

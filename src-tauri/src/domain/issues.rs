@@ -1,9 +1,9 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IssueReport {
-    pub riot_running: bool,
-    pub stay_signed_in: bool,
-    pub core_isolation_enabled: bool,
-    pub missing_files: Vec<String>,
+    pub riot_running           : bool,
+    pub stay_signed_in         : bool,
+    pub core_isolation_enabled : bool,
+    pub missing_files          : Vec<String>,
 }
 
 impl IssueReport {

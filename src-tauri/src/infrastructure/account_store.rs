@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Once;
+use std::sync::{Mutex, Once};
 
 use keyring_core::Entry;
 use serde::{Deserialize, Serialize};
@@ -11,7 +11,8 @@ use crate::domain::Account;
 use crate::error::AppError;
 
 const KEYRING_SERVICE: &str = "gg.sysinfo.automate";
-static INIT_STORE: Once = Once::new();
+static INIT_STORE: Once           = Once::new();
+static ACCOUNT_STORE_LOCK: Mutex<()> = Mutex::new(());
 
 fn ensure_store_registered() {
     INIT_STORE.call_once(|| {
@@ -28,11 +29,19 @@ fn entry(id: &str) -> Result<Entry, AppError> {
         .map_err(|e| AppError::Account(format!("couldn't access secure storage ({e})")))
 }
 
+fn default_full_access() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct StoredAccount {
-    id: String,
-    label: String,
-    username: String,
+    id       : String,
+    label    : String,
+    username : String,
+    #[serde(default)]
+    notes    : Option<String>,
+    #[serde(default = "default_full_access")]
+    full_access: bool,
 }
 
 pub struct WindowsAccountStore {
@@ -44,9 +53,13 @@ impl WindowsAccountStore {
         Self { path: config_dir.join("accounts.json") }
     }
 
-    fn load(&self) -> Vec<StoredAccount> {
-        let Ok(raw) = std::fs::read_to_string(&self.path) else { return Vec::new() };
-        serde_json::from_str(&raw).unwrap_or_default()
+    fn load(&self) -> Result<Vec<StoredAccount>, AppError> {
+        let Ok(raw) = std::fs::read_to_string(&self.path) else { return Ok(Vec::new()) };
+        serde_json::from_str(&raw).map_err(|e| {
+            AppError::Account(format!(
+                "accounts.json couldn't be read (it may be corrupt). restore from backup before saving again ({e})"
+            ))
+        })
     }
 
     fn save(&self, accounts: &[StoredAccount]) -> Result<(), AppError> {
@@ -74,25 +87,47 @@ fn duplicate_error(username: &str) -> AppError {
 
 impl AccountStore for WindowsAccountStore {
     fn list(&self) -> Vec<Account> {
-        self.load().into_iter().map(|a| Account { id: a.id, label: a.label, username: a.username }).collect()
+        let _guard = ACCOUNT_STORE_LOCK.lock().unwrap();
+        self.load()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|a| Account {
+                id          : a.id,
+                label       : a.label,
+                username    : a.username,
+                notes       : a.notes,
+                full_access : a.full_access,
+            })
+            .collect()
     }
 
     fn add(&self, label: String, username: String, password: String) -> Result<Account, AppError> {
-        let mut accounts = self.load();
-        let username = username.trim().to_string();
+        let _guard = ACCOUNT_STORE_LOCK.lock().unwrap();
+        let mut accounts = self.load()?;
+        let username     = username.trim().to_string();
         if accounts.iter().any(|a| a.username.eq_ignore_ascii_case(&username)) {
             return Err(duplicate_error(&username));
         }
         let id = Uuid::new_v4().to_string();
         self.set_password(&id, &password)?;
-        accounts.push(StoredAccount { id: id.clone(), label: label.clone(), username: username.clone() });
-        self.save(&accounts)?;
-        Ok(Account { id, label, username })
+        accounts.push(StoredAccount {
+            id          : id.clone(),
+            label       : label.clone(),
+            username    : username.clone(),
+            notes       : None,
+            full_access : true,
+        });
+        if let Err(e) = self.save(&accounts) {
+            self.delete_password(&id);
+            return Err(e);
+        }
+        Ok(Account { id, label, username, notes: None, full_access: true })
     }
 
     fn update(&self, id: &str, label: String, username: String, password: Option<String>) -> Result<(), AppError> {
-        let mut accounts = self.load();
-        let username = username.trim().to_string();
+        let _guard = ACCOUNT_STORE_LOCK.lock().unwrap();
+        let mut accounts = self.load()?;
+        let username     = username.trim().to_string();
         if accounts.iter().any(|a| a.id != id && a.username.eq_ignore_ascii_case(&username)) {
             return Err(duplicate_error(&username));
         }
@@ -100,8 +135,8 @@ impl AccountStore for WindowsAccountStore {
             .iter_mut()
             .find(|a| a.id == id)
             .ok_or_else(|| AppError::Account("that account no longer exists. refresh the list and try again".into()))?;
-        account.label = label;
-        account.username = username;
+           account.label      = label;
+           account.username   = username;
         if let Some(password) = password {
             self.set_password(id, &password)?;
         }
@@ -109,7 +144,8 @@ impl AccountStore for WindowsAccountStore {
     }
 
     fn remove(&self, id: &str) -> Result<(), AppError> {
-        let mut accounts = self.load();
+        let _guard = ACCOUNT_STORE_LOCK.lock().unwrap();
+        let mut accounts = self.load()?;
         accounts.retain(|a| a.id != id);
         self.delete_password(id);
         self.save(&accounts)
@@ -117,5 +153,49 @@ impl AccountStore for WindowsAccountStore {
 
     fn password(&self, id: &str) -> Result<String, AppError> {
         entry(id)?.get_password().map_err(|e| AppError::Account(format!("couldn't read the saved password ({e})")))
+    }
+
+    fn set_notes(&self, id: &str, notes: Option<String>) -> Result<(), AppError> {
+        let _guard = ACCOUNT_STORE_LOCK.lock().unwrap();
+        let mut accounts = self.load()?;
+        let account = accounts
+            .iter_mut()
+            .find(|a| a.id == id)
+            .ok_or_else(|| AppError::Account("that account no longer exists. refresh the list and try again".into()))?;
+        account.notes = notes.filter(|n| !n.trim().is_empty());
+        self.save(&accounts)
+    }
+
+    fn set_full_access(&self, id: &str, full_access: bool) -> Result<(), AppError> {
+        let _guard = ACCOUNT_STORE_LOCK.lock().unwrap();
+        let mut accounts = self.load()?;
+        let account = accounts
+            .iter_mut()
+            .find(|a| a.id == id)
+            .ok_or_else(|| AppError::Account("that account no longer exists. refresh the list and try again".into()))?;
+        account.full_access = full_access;
+        self.save(&accounts)
+    }
+
+    fn reorder(&self, ids: &[String]) -> Result<(), AppError> {
+        let _guard = ACCOUNT_STORE_LOCK.lock().unwrap();
+        let accounts = self.load()?;
+        let mut by_id: HashMap<String, StoredAccount> = accounts
+            .iter()
+            .map(|account| (account.id.clone(), account.clone()))
+            .collect();
+
+        let mut reordered = Vec::with_capacity(accounts.len());
+        for id in ids {
+            if let Some(account) = by_id.remove(id) {
+                reordered.push(account);
+            }
+        }
+        for account in accounts {
+            if by_id.contains_key(&account.id) {
+                reordered.push(account);
+            }
+        }
+        self.save(&reordered)
     }
 }

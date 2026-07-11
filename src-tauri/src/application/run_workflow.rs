@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use super::ports::{LogLevel, Ports};
 use crate::domain::{Settings, WorkflowAction};
-use crate::error::AppError;
+use crate::error::{AppError, RiotClientError};
 
 pub type StopToken = Arc<AtomicBool>;
 
@@ -14,67 +14,138 @@ pub(super) const SESH_EXE: &str = "sesh.exe";
 pub(super) const LOADER_EXE: &str = "ldr.novgk.exe";
 pub(super) const EMU_INSTALLER_EXE: &str = "emu_installer.exe";
 
-const RIOT_CLIENT_POLL_INTERVAL: Duration = Duration::from_secs(2);
-const RIOT_CLIENT_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
-const RIOT_SETTLE_POLL_INTERVAL: Duration = Duration::from_secs(1);
-const RIOT_SETTLE_DURATION: Duration = Duration::from_secs(5);
+const RIOT_CLIENT_POLL_INTERVAL: Duration     = Duration::from_secs(2);
+const RIOT_CLIENT_STARTUP_TIMEOUT: Duration   = Duration::from_secs(30);
+const RIOT_SETTLE_POLL_INTERVAL: Duration     = Duration::from_secs(1);
+const RIOT_SETTLE_DURATION: Duration          = Duration::from_secs(5);
 const VALORANT_QUICK_CHECK_INTERVAL: Duration = Duration::from_secs(1);
-const VALORANT_QUICK_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
-const TOOL_POLL_INTERVAL: Duration = Duration::from_secs(2);
+const VALORANT_QUICK_CHECK_TIMEOUT: Duration  = Duration::from_secs(5);
+const TOOL_POLL_INTERVAL: Duration            = Duration::from_secs(2);
+pub(super) const LOGIN_POLL_INTERVAL: Duration = Duration::from_secs(2);
+pub(super) const LOGIN_WAIT_TIMEOUT: Duration = Duration::from_secs(300);
 
 pub async fn run(action: WorkflowAction, settings: &Settings, ports: &Ports, stop: &StopToken) -> Result<(), AppError> {
     match action {
-        WorkflowAction::StartWithRestart => start(ports, settings, stop, true).await,
-        WorkflowAction::StartWithoutRestart => start(ports, settings, stop, false).await,
-        WorkflowAction::Fix55Error => fix_55_error(ports, settings, stop).await,
-        WorkflowAction::CloseAll => close_all(ports).await,
+        WorkflowAction::Start => start(ports, settings, stop).await,
+        WorkflowAction::CloseAll => close_all(ports, stop).await,
     }
 }
 
-async fn start(ports: &Ports, settings: &Settings, stop: &StopToken, should_restart_valorant: bool) -> Result<(), AppError> {
+pub(super) fn check_cancelled(stop: &StopToken) -> Result<(), AppError> {
+    if stop.load(Ordering::Acquire) {
+        Err(AppError::Cancelled)
+    } else {
+        Ok(())
+    }
+}
+
+pub(super) fn emit_checked(ports: &Ports, stop: &StopToken, level: LogLevel, message: &str) -> Result<(), AppError> {
+    check_cancelled(stop)?;
+    ports.sink.emit_line(level, message);
+    Ok(())
+}
+
+async fn wait_for_cancel(stop: &StopToken) {
+    while !stop.load(Ordering::Acquire) {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+pub(super) async fn with_cancel<T, F>(stop: &StopToken, fut: F) -> Result<T, AppError>
+where
+    F: std::future::Future<Output = Result<T, AppError>>,
+{
+    tokio::select! {
+        result = fut => result,
+        () = wait_for_cancel(stop) => Err(AppError::Cancelled),
+    }
+}
+
+async fn start(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<(), AppError> {
     find_required(ports, LOADER_EXE, settings.loader_path.as_deref())?;
     ensure_sesh(ports, settings, stop).await?;
-    ensure_riot_running_with_emu_refresh(ports, settings, stop).await?;
-    if should_restart_valorant {
+    if settings.auto_fix_55_enabled {
+        force_refresh_riot_client(ports, settings, stop).await?;
+    } else {
+        ensure_riot_running_with_emu_refresh(ports, settings, stop).await?;
+    }
+    if settings.temp_open_val_enabled {
         temp_open_valorant(ports, settings, stop).await?;
     } else {
         close_valorant_if_running(ports, settings, stop).await?;
     }
-    change_seed(ports).await?;
-    run_loader(ports, settings).await?;
+    change_seed(ports, stop).await?;
+    run_loader(ports, settings, stop).await?;
     open_valorant(ports, settings, stop).await?;
     start_session(ports, settings, stop, true).await
 }
 
-async fn fix_55_error(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<(), AppError> {
+async fn force_refresh_riot_client(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<(), AppError> {
     close_valorant_if_running(ports, settings, stop).await?;
 
+    check_cancelled(stop)?;
     ports.processes.kill_all(RIOT_CLIENT_PROCESS).await;
+    check_cancelled(stop)?;
     ports.sink.emit_line(LogLevel::Info, "riot client closed");
     sleep_cancellable(settings.close_wait, stop).await?;
-    ensure_riot_running_with_emu_refresh(ports, settings, stop).await?;
+    ensure_riot_running(ports, stop).await?;
+    wait_for_riot_to_settle(ports, stop).await?;
 
-    ports.machine.flush_dns().await?;
+    apply_55_fix(ports, settings, stop).await
+}
+
+pub(super) async fn apply_55_fix(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<(), AppError> {
+    if !ports.riot_session.is_logged_in().await {
+        ports.sink.emit_line(LogLevel::Info, "waiting for you to log in to the riot client");
+        if !wait_for_riot_login(ports, stop).await? {
+            ports.sink.emit_line(LogLevel::Warn, "still not logged in, running the emu installer anyway");
+        }
+    }
+
+    run_emu_installer_silently(ports, settings, stop).await?;
+
+    check_cancelled(stop)?;
+    ports.emu_env.flush_dns().await?;
+    check_cancelled(stop)?;
     ports.sink.emit_line(LogLevel::Ok, "dns cache flushed");
+    Ok(())
+}
 
-    run_loader(ports, settings).await?;
-    open_valorant(ports, settings, stop).await?;
-    start_session(ports, settings, stop, true).await
+pub(super) async fn wait_for_riot_login(ports: &Ports, stop: &StopToken) -> Result<bool, AppError> {
+    let started = Instant::now();
+    while !ports.riot_session.is_logged_in().await {
+        if started.elapsed() >= LOGIN_WAIT_TIMEOUT {
+            return Ok(false);
+        }
+        sleep_cancellable(LOGIN_POLL_INTERVAL, stop).await?;
+    }
+    Ok(true)
+}
+
+pub(super) async fn run_emu_installer_silently(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<(), AppError> {
+    check_cancelled(stop)?;
+    let path = find_required(ports, EMU_INSTALLER_EXE, settings.emu_path.as_deref())?;
+    ports.sink.emit_line(LogLevel::Info, "running emu installer");
+    with_cancel(stop, ports.launcher.launch_silent_and_confirm(&path, ports.sink.as_ref())).await?;
+    check_cancelled(stop)?;
+    ports.sink.emit_line(LogLevel::Ok, "emu installer finished");
+    Ok(())
 }
 
 pub(super) async fn ensure_riot_running(ports: &Ports, stop: &StopToken) -> Result<(), AppError> {
-    if ports.riot.running_path().await.is_some() {
+    if ports.riot_runtime.running_path().await.is_some() {
         return Ok(());
     }
-    let install_path = match ports.riot.install_path().await {
+    let install_path = match ports.riot_runtime.install_path().await {
         Some(path) => path,
-        None => ports
-            .prompt
-            .pick_riot_client_exe()
-            .await
-            .ok_or_else(|| AppError::RiotClient("riot client wasn't found, and no path was chosen. run this again and pick RiotClientServices.exe when asked".into()))?,
+        None => {
+            let picked = ports.prompt.pick_riot_client_exe().await;
+            check_cancelled(stop)?;
+            picked.ok_or_else(|| AppError::RiotClient("riot client wasn't found, and no path was chosen. run this again and pick RiotClientServices.exe when asked".into()))?
+        }
     };
-    ports.riot.launch_client(&install_path).await?;
+    check_cancelled(stop)?;
+    with_cancel(stop, ports.riot_runtime.launch_client(&install_path)).await?;
     if !wait_for_process(ports, RIOT_CLIENT_PROCESS, RIOT_CLIENT_POLL_INTERVAL, Some(RIOT_CLIENT_STARTUP_TIMEOUT), stop).await? {
         return Err(AppError::RiotClient("riot client didn't start. try running this again".into()));
     }
@@ -86,7 +157,7 @@ pub(super) async fn wait_for_riot_to_settle(ports: &Ports, stop: &StopToken) -> 
     let mut stable_for = Duration::ZERO;
     while stable_for < RIOT_SETTLE_DURATION {
         sleep_cancellable(RIOT_SETTLE_POLL_INTERVAL, stop).await?;
-        if ports.riot.running_path().await.is_some() {
+        if ports.riot_runtime.running_path().await.is_some() {
             stable_for += RIOT_SETTLE_POLL_INTERVAL;
         } else {
             stable_for = Duration::ZERO;
@@ -97,19 +168,23 @@ pub(super) async fn wait_for_riot_to_settle(ports: &Ports, stop: &StopToken) -> 
 }
 
 async fn ensure_riot_running_with_emu_refresh(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<(), AppError> {
-    let was_already_running = ports.riot.running_path().await.is_some();
+    let was_already_running = ports.riot_runtime.running_path().await.is_some();
     ensure_riot_running(ports, stop).await?;
     if !was_already_running {
         wait_for_riot_to_settle(ports, stop).await?;
-        run_emu_installer(ports, settings, stop).await?;
+        if settings.install_emu_on_riot_launch_enabled {
+            run_emu_installer(ports, settings, stop).await?;
+        }
     }
     Ok(())
 }
 
-pub(super) async fn change_seed(ports: &Ports) -> Result<(), AppError> {
-    let previous = ports.machine.current_emu_seed().unwrap_or_else(|| "none".to_string());
+pub(super) async fn change_seed(ports: &Ports, stop: &StopToken) -> Result<(), AppError> {
+    check_cancelled(stop)?;
+    let previous = ports.emu_env.current_emu_seed().unwrap_or_else(|| "none".to_string());
     let next: u32 = rand::random();
-    ports.machine.set_emu_seed(next).await?;
+    ports.emu_env.set_emu_seed(next).await?;
+    check_cancelled(stop)?;
     ports.sink.emit_line(LogLevel::Ok, &format!("changed emu seed: {previous} -> {next}"));
     Ok(())
 }
@@ -132,16 +207,21 @@ pub(super) async fn close_valorant_if_running(ports: &Ports, settings: &Settings
     sleep_cancellable(settings.close_wait, stop).await
 }
 
-pub(super) async fn run_loader(ports: &Ports, settings: &Settings) -> Result<(), AppError> {
+pub(super) async fn run_loader(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<(), AppError> {
+    check_cancelled(stop)?;
     let path = find_required(ports, LOADER_EXE, settings.loader_path.as_deref())?;
-    ports.launcher.launch(&path, &[]).await?;
+    with_cancel(stop, ports.launcher.launch(&path, &[])).await?;
+    check_cancelled(stop)?;
     ports.sink.emit_line(LogLevel::Ok, "loader running");
     Ok(())
 }
 
 pub(super) async fn run_emu_installer(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<(), AppError> {
+    check_cancelled(stop)?;
     let path = find_required(ports, EMU_INSTALLER_EXE, settings.emu_path.as_deref())?;
-    ports.launcher.launch(&path, &[]).await?;
+    with_cancel(stop, ports.launcher.launch_elevated(&path)).await?;
+    check_cancelled(stop)?;
+    ports.sink.emit_line(LogLevel::Info, "press enter on the emu installer to continue");
     wait_for_tool_to_finish(ports, EMU_INSTALLER_EXE, stop).await?;
     ports.sink.emit_line(LogLevel::Ok, "emu installer finished");
     Ok(())
@@ -160,6 +240,7 @@ pub(super) fn find_required(ports: &Ports, filename: &str, override_path: Option
 }
 
 pub(super) async fn ensure_sesh(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<std::path::PathBuf, AppError> {
+    check_cancelled(stop)?;
     if let Some(path) = ports.files.find(SESH_EXE, settings.sesh_path.as_deref()) {
         return Ok(path);
     }
@@ -170,7 +251,10 @@ add {EMU_INSTALLER_EXE} to the app folder or set its path in Settings, then try 
         )));
     };
     ports.sink.emit_line(LogLevel::Warn, &format!("{SESH_EXE} not found, running {EMU_INSTALLER_EXE} to create it"));
-    ports.launcher.launch(&installer, &[]).await?;
+    check_cancelled(stop)?;
+    with_cancel(stop, ports.launcher.launch(&installer, &[])).await?;
+    check_cancelled(stop)?;
+    ports.sink.emit_line(LogLevel::Info, "waiting for you to press enter in the emu installer window to continue");
     wait_for_tool_to_finish(ports, EMU_INSTALLER_EXE, stop).await?;
     ports.sink.emit_line(LogLevel::Ok, "emu installer finished");
     ports.files.find(SESH_EXE, settings.sesh_path.as_deref()).ok_or_else(|| {
@@ -184,17 +268,21 @@ pub(super) async fn open_valorant(ports: &Ports, settings: &Settings, stop: &Sto
 }
 
 async fn start_valorant(ports: &Ports, stop: &StopToken) -> Result<(), AppError> {
+    check_cancelled(stop)?;
     let riot_path = ports
-        .riot
+        .riot_runtime
         .running_path()
         .await
-        .ok_or_else(|| AppError::RiotClient("riot client isn't running anymore. try running this again".into()))?;
-    ports.riot.launch_valorant_direct(&riot_path).await?;
+        .ok_or(AppError::RiotClient(RiotClientError::NotRunning))?;
+    with_cancel(stop, ports.riot_launch.launch_valorant_direct(&riot_path)).await?;
     if wait_for_process(ports, VALORANT_PROCESS, VALORANT_QUICK_CHECK_INTERVAL, Some(VALORANT_QUICK_CHECK_TIMEOUT), stop).await? {
         return Ok(());
     }
+    check_cancelled(stop)?;
     ports.sink.emit_line(LogLevel::Warn, "direct launch didn't work, trying the riot api instead");
-    ports.riot.launch_valorant_via_api().await
+    with_cancel(stop, ports.riot_launch.launch_valorant_via_api()).await?;
+    check_cancelled(stop)?;
+    Ok(())
 }
 
 async fn wait_for_valorant(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<(), AppError> {
@@ -204,7 +292,9 @@ async fn wait_for_valorant(ports: &Ports, settings: &Settings, stop: &StopToken)
     }
     ports.sink.emit_line(LogLevel::Warn, "val didn't open in time, trying again");
     start_valorant(ports, stop).await?;
-    wait_for_process(ports, VALORANT_PROCESS, settings.check_every, None, stop).await?;
+    if !wait_for_process(ports, VALORANT_PROCESS, settings.check_every, None, stop).await? {
+        return Err(AppError::RiotClient("valorant didn't open after retry".into()));
+    }
     ports.sink.emit_line(LogLevel::Ok, "val found");
     Ok(())
 }
@@ -218,18 +308,25 @@ pub(super) async fn start_session(ports: &Ports, settings: &Settings, stop: &Sto
     }
     if ports.processes.is_running(SESH_EXE).await {
         ports.sink.emit_line(LogLevel::Warn, "a session is already running, replacing it");
+        check_cancelled(stop)?;
         ports.processes.kill_all(SESH_EXE).await;
         sleep_cancellable(settings.close_wait, stop).await?;
     }
-    ports.launcher.launch(&path, &[]).await?;
+    check_cancelled(stop)?;
+    with_cancel(stop, ports.launcher.launch(&path, &[])).await?;
+    check_cancelled(stop)?;
     ports.sink.emit_line(LogLevel::Ok, "ready");
     Ok(())
 }
 
-async fn close_all(ports: &Ports) -> Result<(), AppError> {
+async fn close_all(ports: &Ports, stop: &StopToken) -> Result<(), AppError> {
+    check_cancelled(stop)?;
     ports.processes.kill_all(VALORANT_PROCESS).await;
+    check_cancelled(stop)?;
     ports.processes.kill_all(RIOT_CLIENT_PROCESS).await;
+    check_cancelled(stop)?;
     ports.processes.kill_all(SESH_EXE).await;
+    check_cancelled(stop)?;
     ports.processes.kill_all(LOADER_EXE).await;
     ports.sink.emit_line(LogLevel::Ok, "closed");
     Ok(())
@@ -238,9 +335,7 @@ async fn close_all(ports: &Ports) -> Result<(), AppError> {
 async fn wait_for_process(ports: &Ports, name: &str, every: Duration, timeout: Option<Duration>, stop: &StopToken) -> Result<bool, AppError> {
     let started = Instant::now();
     loop {
-        if stop.load(Ordering::Relaxed) {
-            return Err(AppError::Cancelled);
-        }
+        check_cancelled(stop)?;
         if ports.processes.is_running(name).await {
             return Ok(true);
         }
@@ -249,23 +344,21 @@ async fn wait_for_process(ports: &Ports, name: &str, every: Duration, timeout: O
                 return Ok(false);
             }
         }
-        tokio::time::sleep(every).await;
+        sleep_cancellable(every, stop).await?;
     }
 }
 
 pub(super) async fn wait_for_process_gone(ports: &Ports, name: &str, every: Duration, timeout: Duration, stop: &StopToken) -> Result<(), AppError> {
     let started = Instant::now();
     loop {
-        if stop.load(Ordering::Relaxed) {
-            return Err(AppError::Cancelled);
-        }
+        check_cancelled(stop)?;
         if !ports.processes.is_running(name).await {
             return Ok(());
         }
         if started.elapsed() >= timeout {
             return Ok(());
         }
-        tokio::time::sleep(every).await;
+        sleep_cancellable(every, stop).await?;
     }
 }
 
@@ -291,11 +384,11 @@ mod tests {
 
     fn no_wait_settings() -> Settings {
         Settings {
-            temp_val_wait: Duration::from_millis(1),
-            sesh_wait: Duration::from_millis(1),
-            check_every: Duration::from_millis(1),
-            close_wait: Duration::from_millis(1),
-            val_launch_timeout: Duration::from_millis(50),
+            temp_val_wait      : Duration::from_millis(1),
+            sesh_wait          : Duration::from_millis(1),
+            check_every        : Duration::from_millis(1),
+            close_wait         : Duration::from_millis(1),
+            val_launch_timeout : Duration::from_millis(50),
             ..Settings::default()
         }
     }

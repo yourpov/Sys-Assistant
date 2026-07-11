@@ -1,6 +1,7 @@
-use crate::infrastructure::changelog;
+use crate::application::changelog;
+use crate::invoke_error::{InvokeErrorDto, invoke_err};
 
 #[tauri::command]
-pub async fn fetch_changelog() -> Result<String, String> {
-    changelog::fetch_changelog().await.map_err(|e| e.to_string())
+pub async fn fetch_changelog() -> Result<String, InvokeErrorDto> {
+    changelog::fetch().await.map_err(invoke_err)
 }

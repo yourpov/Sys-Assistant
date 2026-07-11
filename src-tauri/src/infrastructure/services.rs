@@ -1,10 +1,11 @@
 use std::os::windows::process::CommandExt;
 use std::process::{Command, Output};
 
-use crate::application::ports::{ServiceControl, ServiceState};
+use crate::application::ports::{EventSink, LogLevel, ServiceControl, ServiceState};
 
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-const SERVICE_DOES_NOT_EXIST: i32 = 1060;
+const CREATE_NO_WINDOW: u32        = 0x0800_0000;
+const SERVICE_DOES_NOT_EXIST: i32  = 1060;
+const SERVICE_ALREADY_RUNNING: i32 = 1056;
 
 fn sc_command() -> Command {
     let mut command = Command::new("sc");
@@ -16,9 +17,18 @@ pub struct ScServiceControl;
 
 #[async_trait::async_trait]
 impl ServiceControl for ScServiceControl {
-    async fn start(&self, service: &str) {
-        let service = service.to_string();
-        let _ = tokio::task::spawn_blocking(move || sc_command().args(["start", &service]).output()).await;
+    async fn start(&self, service: &str, sink: &dyn EventSink) {
+        let service_name = service.to_string();
+        let result = tokio::task::spawn_blocking(move || sc_command().args(["start", &service_name]).output()).await;
+        match result {
+            Ok(Ok(output)) if output.status.code() == Some(SERVICE_ALREADY_RUNNING) => {}
+            Ok(Ok(output)) if !output.status.success() => {
+                sink.emit_line(LogLevel::Warn, &format!("couldn't start service '{service}': {}", String::from_utf8_lossy(&output.stdout).trim()));
+            }
+            Ok(Err(e)) => sink.emit_line(LogLevel::Warn, &format!("couldn't start service '{service}': {e}")),
+            Err(e) => sink.emit_line(LogLevel::Warn, &format!("couldn't start service '{service}': {e}")),
+            Ok(Ok(_)) => {}
+        }
     }
 
     async fn query(&self, service: &str) -> ServiceState {

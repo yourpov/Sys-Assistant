@@ -9,8 +9,8 @@ use crate::error::AppError;
 
 #[derive(Default)]
 pub struct Recorder {
-    pub launched: Mutex<Vec<PathBuf>>,
-    pub killed: Mutex<Vec<String>>,
+    pub launched : Mutex<Vec<PathBuf>>,
+    pub killed   : Mutex<Vec<String>>,
 }
 
 struct FakeSink;
@@ -40,11 +40,21 @@ impl ProcessLauncher for FakeLauncher {
         self.0.launched.lock().unwrap().push(path.to_path_buf());
         Ok(())
     }
+
+    async fn launch_elevated(&self, path: &Path) -> Result<(), AppError> {
+        self.0.launched.lock().unwrap().push(path.to_path_buf());
+        Ok(())
+    }
+
+    async fn launch_silent_and_confirm(&self, path: &Path, _sink: &dyn EventSink) -> Result<(), AppError> {
+        self.0.launched.lock().unwrap().push(path.to_path_buf());
+        Ok(())
+    }
 }
 
 struct FakeKillTrackingProcesses {
-    inner: Arc<FakeProcesses>,
-    recorder: Arc<Recorder>,
+    inner    : Arc<FakeProcesses>,
+    recorder : Arc<Recorder>,
 }
 #[async_trait::async_trait]
 impl ProcessMonitor for FakeKillTrackingProcesses {
@@ -65,7 +75,7 @@ impl FileFinder for FakeFiles {
 
 struct FakeMachine;
 #[async_trait::async_trait]
-impl MachineConfig for FakeMachine {
+impl SystemHealth for FakeMachine {
     fn is_rdp_disabled(&self) -> Result<bool, AppError> {
         Ok(true)
     }
@@ -81,6 +91,10 @@ impl MachineConfig for FakeMachine {
     fn is_windows_11(&self) -> bool {
         false
     }
+}
+
+#[async_trait::async_trait]
+impl EmuEnvironment for FakeMachine {
     fn current_emu_seed(&self) -> Option<String> {
         None
     }
@@ -95,7 +109,7 @@ impl MachineConfig for FakeMachine {
 struct FakeServices;
 #[async_trait::async_trait]
 impl ServiceControl for FakeServices {
-    async fn start(&self, _service: &str) {}
+    async fn start(&self, _service: &str, _sink: &dyn EventSink) {}
     async fn query(&self, _service: &str) -> ServiceState {
         ServiceState::Running
     }
@@ -105,7 +119,7 @@ pub struct FakeRiot {
     pub running: Mutex<bool>,
 }
 #[async_trait::async_trait]
-impl RiotClient for FakeRiot {
+impl RiotRuntime for FakeRiot {
     async fn running_path(&self) -> Option<PathBuf> {
         self.running.lock().unwrap().then(|| PathBuf::from("RiotClientServices.exe"))
     }
@@ -119,12 +133,24 @@ impl RiotClient for FakeRiot {
         *self.running.lock().unwrap() = true;
         Ok(())
     }
+}
+
+#[async_trait::async_trait]
+impl RiotLauncher for FakeRiot {
     async fn launch_valorant_direct(&self, _riot_path: &Path) -> Result<(), AppError> {
         Ok(())
     }
     async fn launch_valorant_via_api(&self) -> Result<(), AppError> {
         Ok(())
     }
+}
+
+#[async_trait::async_trait]
+impl RiotSession for FakeRiot {
+    async fn is_logged_in(&self) -> bool {
+        *self.running.lock().unwrap()
+    }
+    fn invalidate_login_cache(&self) {}
     async fn stay_signed_in_enabled(&self) -> bool {
         true
     }
@@ -161,8 +187,8 @@ impl KeySimulator for FakeKeySimulator {
 }
 
 pub struct FakeAccountStore {
-    pub accounts: Mutex<Vec<Account>>,
-    pub passwords: Mutex<std::collections::HashMap<String, String>>,
+    pub accounts  : Mutex<Vec<Account>>,
+    pub passwords : Mutex<std::collections::HashMap<String, String>>,
 }
 
 impl AccountStore for FakeAccountStore {
@@ -170,7 +196,7 @@ impl AccountStore for FakeAccountStore {
         self.accounts.lock().unwrap().clone()
     }
     fn add(&self, label: String, username: String, _password: String) -> Result<Account, AppError> {
-        Ok(Account { id: "fake".into(), label, username })
+        Ok(Account { id: "fake".into(), label, username, notes: None, full_access: true })
     }
     fn update(&self, _id: &str, _label: String, _username: String, _password: Option<String>) -> Result<(), AppError> {
         Ok(())
@@ -181,6 +207,32 @@ impl AccountStore for FakeAccountStore {
     fn password(&self, id: &str) -> Result<String, AppError> {
         self.passwords.lock().unwrap().get(id).cloned().ok_or_else(|| AppError::Account("no password".into()))
     }
+    fn set_notes(&self, _id: &str, _notes: Option<String>) -> Result<(), AppError> {
+        Ok(())
+    }
+    fn set_full_access(&self, _id: &str, _full_access: bool) -> Result<(), AppError> {
+        Ok(())
+    }
+    fn reorder(&self, ids: &[String]) -> Result<(), AppError> {
+        let mut accounts = self.accounts.lock().unwrap();
+        let mut by_id: std::collections::HashMap<String, Account> = accounts
+            .iter()
+            .map(|account| (account.id.clone(), account.clone()))
+            .collect();
+        let mut reordered = Vec::with_capacity(accounts.len());
+        for id in ids {
+            if let Some(account) = by_id.remove(id) {
+                reordered.push(account);
+            }
+        }
+        for account in accounts.iter() {
+            if by_id.contains_key(&account.id) {
+                reordered.push(account.clone());
+            }
+        }
+        *accounts = reordered;
+        Ok(())
+    }
 }
 
 pub struct FakeRiotLogin {
@@ -188,7 +240,14 @@ pub struct FakeRiotLogin {
 }
 
 impl RiotLogin for FakeRiotLogin {
-    fn login(&self, pid: u32, username: &str, password: &str) -> Result<(), AppError> {
+    fn login(
+        &self,
+        pid: u32,
+        username: &str,
+        password: &str,
+        _sink: &dyn EventSink,
+        _stop: &std::sync::atomic::AtomicBool,
+    ) -> Result<(), AppError> {
         self.calls.lock().unwrap().push((pid, username.to_string(), password.to_string()));
         Ok(())
     }
@@ -196,22 +255,22 @@ impl RiotLogin for FakeRiotLogin {
 
 #[derive(Default)]
 pub struct FakeSessionSnapshotStore {
-    pub has_snapshot: Mutex<bool>,
-    pub restored: Mutex<bool>,
-    pub cleared: Mutex<bool>,
-    pub saved: Mutex<bool>,
-    pub forgotten: Mutex<bool>,
+    pub has_snapshot : Mutex<bool>,
+    pub restored     : Mutex<bool>,
+    pub cleared      : Mutex<bool>,
+    pub saved        : Mutex<bool>,
+    pub forgotten    : Mutex<bool>,
 }
 
 impl SessionSnapshotStore for FakeSessionSnapshotStore {
     fn has_snapshot(&self, _account_id: &str) -> bool {
         *self.has_snapshot.lock().unwrap()
     }
-    fn save(&self, _account_id: &str, _install_dir: Option<&Path>) -> Result<(), AppError> {
+    fn save(&self, _account_id: &str, _install_dir: Option<&Path>, _sink: &dyn EventSink) -> Result<(), AppError> {
         *self.saved.lock().unwrap() = true;
         Ok(())
     }
-    fn restore(&self, _account_id: &str, _install_dir: Option<&Path>) -> Result<(), AppError> {
+    fn restore(&self, _account_id: &str, _install_dir: Option<&Path>, _sink: &dyn EventSink) -> Result<(), AppError> {
         *self.restored.lock().unwrap() = true;
         Ok(())
     }
@@ -226,16 +285,20 @@ impl SessionSnapshotStore for FakeSessionSnapshotStore {
 }
 
 pub fn fake_ports(recorder: Arc<Recorder>, processes: Arc<FakeProcesses>, riot: Arc<FakeRiot>) -> Ports {
+    let machine = Arc::new(FakeMachine);
     Ports {
-        processes: Arc::new(FakeKillTrackingProcesses { inner: processes, recorder: recorder.clone() }),
-        launcher: Arc::new(FakeLauncher(recorder)),
-        files: Arc::new(FakeFiles),
-        machine: Arc::new(FakeMachine),
-        services: Arc::new(FakeServices),
-        riot,
-        downloader: Arc::new(FakeDownloader),
-        prompt: Arc::new(FakePrompt),
-        sink: Arc::new(FakeSink),
-        keys: Arc::new(FakeKeySimulator),
+        processes     : Arc::new(FakeKillTrackingProcesses { inner: processes, recorder: recorder.clone() }),
+        launcher      : Arc::new(FakeLauncher(recorder)),
+        files         : Arc::new(FakeFiles),
+        system_health : machine.clone(),
+        emu_env       : machine,
+        services      : Arc::new(FakeServices),
+        riot_runtime  : riot.clone(),
+        riot_launch   : riot.clone(),
+        riot_session  : riot,
+        downloader    : Arc::new(FakeDownloader),
+        prompt        : Arc::new(FakePrompt),
+        sink          : Arc::new(FakeSink),
+        keys          : Arc::new(FakeKeySimulator),
     }
 }

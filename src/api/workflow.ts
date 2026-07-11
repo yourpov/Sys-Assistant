@@ -29,3 +29,7 @@ export function fixIssues(report: IssueReport): Promise<void> {
 export function restartComputer(): Promise<void> {
   return invoke('restart_computer');
 }
+
+export function releaseWorkflowStop(): Promise<void> {
+  return invoke('release_workflow_stop');
+}

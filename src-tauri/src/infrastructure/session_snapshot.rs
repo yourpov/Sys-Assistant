@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::application::ports::SessionSnapshotStore;
+use crate::application::ports::{EventSink, LogLevel, SessionSnapshotStore};
 use crate::error::AppError;
 
 enum Base {
@@ -9,18 +9,19 @@ enum Base {
 }
 
 struct SessionFile {
-    base: Base,
-    rel_path: &'static str,
-    is_dir: bool,
+    base     : Base,
+    rel_path : &'static str,
+    is_dir   : bool,
+    critical : bool,
 }
 
 const SESSION_FILES: &[SessionFile] = &[
-    SessionFile { base: Base::LocalAppData, rel_path: "Riot Games/Riot Client/Data/RiotGamesPrivateSettings.yaml", is_dir: false },
-    SessionFile { base: Base::LocalAppData, rel_path: "Riot Games/Riot Client/Data/Sessions", is_dir: true },
-    SessionFile { base: Base::LocalAppData, rel_path: "Riot Games/Riot Client/Config/RiotClientSettings.yaml", is_dir: false },
-    SessionFile { base: Base::LocalAppData, rel_path: "Riot Games/Riot Client/Config/lockfile", is_dir: false },
-    SessionFile { base: Base::InstallDir, rel_path: "Config/client.config.yaml", is_dir: false },
-    SessionFile { base: Base::InstallDir, rel_path: "Config/client.settings.yaml", is_dir: false },
+    SessionFile { base: Base::LocalAppData, rel_path: "Riot Games/Riot Client/Data/RiotGamesPrivateSettings.yaml", is_dir: false, critical: false },
+    SessionFile { base: Base::LocalAppData, rel_path: "Riot Games/Riot Client/Data/Sessions", is_dir: true, critical: true },
+    SessionFile { base: Base::LocalAppData, rel_path: "Riot Games/Riot Client/Config/RiotClientSettings.yaml", is_dir: false, critical: false },
+    SessionFile { base: Base::LocalAppData, rel_path: "Riot Games/Riot Client/Config/lockfile", is_dir: false, critical: false },
+    SessionFile { base: Base::InstallDir, rel_path: "Config/client.config.yaml", is_dir: false, critical: false },
+    SessionFile { base: Base::InstallDir, rel_path: "Config/client.settings.yaml", is_dir: false, critical: false },
 ];
 
 const ACTIVE_SESSION_FILES: &[&str] =
@@ -77,27 +78,75 @@ fn copy_dir_recursive(source: &Path, destination: &Path) -> std::io::Result<()> 
 
 impl SessionSnapshotStore for WindowsSessionSnapshotStore {
     fn has_snapshot(&self, account_id: &str) -> bool {
-        self.account_dir(account_id).exists()
+        let account_dir = self.account_dir(account_id);
+        if !account_dir.exists() {
+            return false;
+        }
+        SESSION_FILES.iter().filter(|file| file.critical).all(|file| account_dir.join(file.rel_path).exists())
     }
 
-    fn save(&self, account_id: &str, install_dir: Option<&Path>) -> Result<(), AppError> {
+    fn save(&self, account_id: &str, install_dir: Option<&Path>, sink: &dyn EventSink) -> Result<(), AppError> {
         let account_dir = self.account_dir(account_id);
+        let mut incomplete = false;
         for file in SESSION_FILES {
-            let Some(source) = Self::live_path(file, install_dir) else { continue };
+            let Some(source) = Self::live_path(file, install_dir) else {
+                incomplete = true;
+                continue;
+            };
             let destination = account_dir.join(file.rel_path);
+
+            if destination.exists() {
+                let clear = if destination.is_dir() {
+                    std::fs::remove_dir_all(&destination)
+                } else {
+                    std::fs::remove_file(&destination)
+                };
+                clear.map_err(|e| AppError::RiotClient(format!("couldn't clear the previous saved session for this account ({e})").into()))?;
+            }
+
+            if !source.exists() {
+                incomplete = true;
+                continue;
+            }
+
             Self::copy_path(&source, &destination, file.is_dir)
-                .map_err(|e| AppError::RiotClient(format!("couldn't save the session for this account ({e})")))?;
+                .map_err(|e| AppError::RiotClient(format!("couldn't save the session for this account ({e})").into()))?;
+        }
+        if incomplete {
+            sink.emit_line(
+                LogLevel::Warn,
+                "couldn't save every part of this session, if signing in with it later doesn't work, sign in fresh again",
+            );
         }
         Ok(())
     }
 
-    fn restore(&self, account_id: &str, install_dir: Option<&Path>) -> Result<(), AppError> {
+    fn restore(&self, account_id: &str, install_dir: Option<&Path>, sink: &dyn EventSink) -> Result<(), AppError> {
         let account_dir = self.account_dir(account_id);
+        let mut incomplete = false;
         for file in SESSION_FILES {
             let Some(destination) = Self::live_path(file, install_dir) else { continue };
             let source = account_dir.join(file.rel_path);
+
+            if destination.exists() {
+                let clear = if destination.is_dir() {
+                    std::fs::remove_dir_all(&destination)
+                } else {
+                    std::fs::remove_file(&destination)
+                };
+                clear.map_err(|e| AppError::RiotClient(format!("couldn't clear the current riot session ({e})").into()))?;
+            }
+
+            if !source.exists() {
+                incomplete = true;
+                continue;
+            }
+
             Self::copy_path(&source, &destination, file.is_dir)
-                .map_err(|e| AppError::RiotClient(format!("couldn't restore the saved session for this account ({e})")))?;
+                .map_err(|e| AppError::RiotClient(format!("couldn't restore the saved session for this account ({e})").into()))?;
+        }
+        if incomplete {
+            sink.emit_line(LogLevel::Warn, "this saved session was missing a few extra details, sign in fresh again if anything looks off");
         }
         Ok(())
     }
@@ -112,7 +161,7 @@ impl SessionSnapshotStore for WindowsSessionSnapshotStore {
                 continue;
             }
             let result = if path.is_dir() { std::fs::remove_dir_all(&path) } else { std::fs::remove_file(&path) };
-            result.map_err(|e| AppError::RiotClient(format!("couldn't clear the current riot session ({e})")))?;
+            result.map_err(|e| AppError::RiotClient(format!("couldn't clear the current riot session ({e})").into()))?;
         }
         Ok(())
     }
@@ -122,6 +171,7 @@ impl SessionSnapshotStore for WindowsSessionSnapshotStore {
         if !account_dir.exists() {
             return Ok(());
         }
-        std::fs::remove_dir_all(&account_dir).map_err(|e| AppError::RiotClient(format!("couldn't forget the saved session for this account ({e})")))
+        std::fs::remove_dir_all(&account_dir)
+            .map_err(|e| AppError::RiotClient(format!("couldn't forget the saved session for this account ({e})").into()))
     }
 }

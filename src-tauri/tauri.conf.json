@@ -1,10 +1,10 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Private Assistant",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "identifier": "gg.sysinfo.automate",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "node scripts/dev.mjs",
     "beforeBuildCommand": "npm run build",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"
@@ -20,17 +20,28 @@
         "resizable": true,
         "center": true,
         "decorations": false,
-        "backgroundColor": "#0c0a10"
+        "backgroundColor": "#0b0912"
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' asset: data: https://media.valorant-api.com; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost"
+      "csp": "default-src 'self'; frame-src https://my.spline.design https://*.spline.design; img-src 'self' asset: data: https://media.valorant-api.com https://cdn.discordapp.com https://ykzpldiiygssqtcmvlvn.supabase.co https://*.spline.design; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost https://github.com https://objects.githubusercontent.com https://api.github.com https://*.spline.design"
     }
   },
   "bundle": {
     "active": true,
     "targets": ["nsis"],
-    "icon": ["icons/icon.ico", "icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png"],
-    "resources": ["../private", "../tracex"]
+    "createUpdaterArtifacts": true,
+    "icon": ["icons/icon.ico", "icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png"]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI2OEI0MzVDQThERUM5MkQKUldRdHlkNm9YRU9MSnVnRnhWbExKTTE0eG1Wb2JqL1doS0dBTFQ2Rm1UVFRMTnFtS3oxbDVxMzIK",
+      "endpoints": ["https://github.com/yourpov/Sys-Assistant/releases/latest/download/latest.json"]
+    },
+    "deep-link": {
+      "desktop": {
+        "schemes": ["sysautomate"]
+      }
+    }
   }
 }

@@ -1,15 +1,26 @@
+use std::sync::Arc;
+
 use tauri::{AppHandle, Emitter};
 
 use crate::application::ports::{EventSink, LogLevel};
 use crate::dto::LogLineDto;
+use crate::infrastructure::app_log::AppLogStore;
 
 pub struct TauriEventSink {
-    pub app: AppHandle,
+    pub app     : AppHandle,
+    pub app_log : Arc<AppLogStore>,
 }
 
 impl EventSink for TauriEventSink {
     fn emit_line(&self, level: LogLevel, message: &str) {
-        let dto = LogLineDto { level: level_label(level), message: message.to_string() };
+        let label = level_label(level);
+        self.app_log.append(label, message);
+        let dto = LogLineDto { level: label, message: message.to_string(), replace: false };
+        let _ = self.app.emit("workflow://log", dto);
+    }
+
+    fn emit_progress(&self, message: &str) {
+        let dto = LogLineDto { level: "info", message: message.to_string(), replace: true };
         let _ = self.app.emit("workflow://log", dto);
     }
 }
