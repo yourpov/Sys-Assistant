@@ -2,8 +2,6 @@
 
 Tauri desktop app for the Sys-Info Valorant workflow. Replaces the old `.bat` automation with a real UI, more methods, and a tools suite.
 
-**v0.2.0** is the current release.
-
 ![automate page](https://i.imgur.com/WGegNcj.png)
 
 ## what it does
@@ -26,7 +24,7 @@ Tauri desktop app for the Sys-Info Valorant workflow. Replaces the old `.bat` au
 
 |                                              |                                              |
 | -------------------------------------------- | -------------------------------------------- |
-| ![splash](https://i.imgur.com/ok9N6h7.png)   | ![accounts](https://i.imgur.com/0RmNszs.png) |
+| ![splash](https://i.imgur.com/ok9N6h7.png)   | ![accounts](https://i.imgur.com/UlJHPwe.png) |
 | ![tools](https://i.imgur.com/J0bOTFX.png)    | ![configs](https://i.imgur.com/7AqL95u.png)  |
 | ![settings](https://i.imgur.com/AqZ40A4.png) |                                              |
 
@@ -34,7 +32,7 @@ Tauri desktop app for the Sys-Info Valorant workflow. Replaces the old `.bat` au
 
 Windows only (Win32 automation + WebView2).
 
-Prebuilt builds: [Releases](https://github.com/yourpov/Sys-Assistant/releases) (tag `v0.2.0`).
+Prebuilt builds: [Releases](https://github.com/yourpov/Sys-Assistant/releases).
 
 From source:
 
