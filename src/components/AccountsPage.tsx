@@ -4,25 +4,28 @@ import { createPortal }                                                         
 
 import { open, save } from '@tauri-apps/plugin-dialog';
 
-import { addAccount, exportAccountsTxt, forgetAccountSession, importAccountsTxt, listAccounts, loginAccount, removeAccount, reorderAccounts, setAccountFullAccess, setAccountNotes, updateAccount } from '../api/accounts';
-import { onWorkflowLog }                                                                                                                    from '../api/events';
-import { getSettings, saveSettings }                                                                                                        from '../api/settings';
-import { cancelAction }                                                                                                                        from '../api/workflow';
+import { addAccount, exportAccountsTxt, forgetAccountSession, importAccountsTxt, listAccounts, loginAccount, removeAccount, reorderAccounts, setAccountCategory, setAccountFullAccess, setAccountNotes, setAccountRegion, updateAccount } from '../api/accounts';
+import { onWorkflowLog }                                                                                                         from '../api/events';
+import { getSettings, saveSettings }                                                                                             from '../api/settings';
+import { cancelAction }                                                                                                          from '../api/workflow';
 
-import { toast }                                                                                                                            from '../hooks/useToastStore';
-import type { Account, LogLine, Settings }                                                                                                  from '../types';
-import { accountAvatarInitial, displayUsername }                                                                                            from '../utils/accountDisplay';
-import { CLIPBOARD_ACK_MS }                                                                                                                 from '../constants/timing';
-import { confirmIfEnabled }                                                                                                                 from '../utils/confirmGate';
-import { logSilentFailure }                                                                                                                 from '../utils/silentError';
-import { parseInvokeError, toastFromError, type UserFacingError }                                                                           from '../utils/userError';
-import { BASE_WINDOW_SIZE, tweenWindowSize }                                                                                                from '../utils/windowSize';
-import { AccountFormDialog }                                                                                                                from './AccountFormDialog';
-import { LogPanel }                                                                                                                         from './LogPanel';
-import { PageHero }                                                                                                                         from './PageHero';
+import { toast }                                                                                                                 from '../hooks/useToastStore';
+import type { Account, LogLine, Settings }                                                                                       from '../types';
+import { accountAvatarInitial, displayUsername }                                                                                 from '../utils/accountDisplay';
+import { groupAccountsByCategory, distinctCategories, UNCATEGORIZED_KEY }                                                        from '../utils/accountCategories';
+import { readPersistedRecord, writePersistedRecord }                                                                             from '../utils/persistedRecord';
+import { CLIPBOARD_ACK_MS }                                                                                                      from '../constants/timing';
+import { confirmIfEnabled }                                                                                                      from '../utils/confirmGate';
+import { logSilentFailure }                                                                                                      from '../utils/silentError';
+import { parseInvokeError, toastFromError, type UserFacingError }                                                                from '../utils/userError';
+import { BASE_WINDOW_SIZE, tweenWindowSize }                                                                                     from '../utils/windowSize';
+import { AccountCategorySection }                                                                                                from './AccountCategorySection';
+import { AccountFormDialog }                                                                                                     from './AccountFormDialog';
+import { LogPanel }                                                                                                              from './LogPanel';
+import { PageHero }                                                                                                              from './PageHero';
 
-import { Skeleton }                                                                                                                         from './Skeleton';
-import { Tooltip }                                                                                                                          from './Tooltip';
+import { Skeleton }                                                                                                              from './Skeleton';
+import { Tooltip }                                                                                                               from './Tooltip';
 
 interface Props {
   onLookup: (riotId: string) => void;
@@ -34,6 +37,7 @@ const ANIMATE_LIST_THRESHOLD   = 15;
 const DRAG_SELECT_THRESHOLD_PX = 4;
 const DRAG_SCROLL_EDGE_PX      = 44;
 const DRAG_SCROLL_SPEED_PX     = 14;
+const ACCOUNTS_CATEGORY_STATE_KEY = 'accounts-category-state';
 
 interface DragSelectState {
   active     : boolean;
@@ -63,13 +67,14 @@ export function AccountsPage({ onLookup }: Props) {
   const [bulkWorking, setBulkWorking]         = useState(false);
   const [isDragSelecting, setIsDragSelecting] = useState(false);
   const [hideUsernames, setHideUsernames]     = useState(false);
+  const [categoryOpenState, setCategoryOpenState] = useState<Record<string, boolean>>({});
   const settingsRef                           = useRef<Settings | null>(null);
 
   const listRef                               = useRef<HTMLDivElement>(null);
   const dragSelectRef                         = useRef<DragSelectState | null>(null);
   const dragPointerYRef                       = useRef(0);
   const dragScrollRafRef                      = useRef<number | null>(null);
-  const filteredAccountsRef                   = useRef<Account[]>([]);
+  const visibleRowsRef                        = useRef<Account[]>([]);
   const accountsRef                           = useRef<Account[]>([]);
 
   useEffect(() => {
@@ -207,7 +212,7 @@ export function AccountsPage({ onLookup }: Props) {
   };
 
   const applyDragRange = useCallback((anchorIndex: number, currentIndex: number, mode: 'select' | 'deselect') => {
-    const accounts = filteredAccountsRef.current;
+    const accounts = visibleRowsRef.current;
     if (accounts.length === 0) return;
 
     const start    = Math.min(anchorIndex, currentIndex);
@@ -413,14 +418,16 @@ export function AccountsPage({ onLookup }: Props) {
     }
   };
 
-  const submitAdd = async (label: string, username: string, password: string, notes: string, fullAccess: boolean) => {
+  const submitAdd = async (label: string, username: string, password: string, notes: string, fullAccess: boolean, category: string, region: string) => {
     setSaving(true);
     setFormError(null);
     try {
       const account = await addAccount(label, username, password);
       if (notes !== '') await setAccountNotes(account.id, notes);
       if (!fullAccess) await setAccountFullAccess(account.id, false);
-      setAccounts((prev) => [...prev, { ...account, notes: notes || null, fullAccess }]);
+      if (category !== '') await setAccountCategory(account.id, category);
+      if (region !== '') await setAccountRegion(account.id, region);
+      setAccounts((prev) => [...prev, { ...account, notes: notes || null, fullAccess, category: category || null, region: region || null }]);
       log('ok', `added ${label || username}`);
       setAdding(false);
     } catch (e) {
@@ -430,7 +437,7 @@ export function AccountsPage({ onLookup }: Props) {
     }
   };
 
-  const submitEdit = async (label: string, username: string, password: string, notes: string, fullAccess: boolean) => {
+  const submitEdit = async (label: string, username: string, password: string, notes: string, fullAccess: boolean, category: string, region: string) => {
     if (!editingId) return;
     if (password !== '') {
       const notice = { title: 'Change this account\'s password?', body: "Make sure you've got the new password right, or you won't be able to log in.", icon: 'error' as const };
@@ -442,7 +449,9 @@ export function AccountsPage({ onLookup }: Props) {
       await updateAccount(editingId, label, username, password === '' ? null : password);
       await setAccountNotes(editingId, notes || null);
       await setAccountFullAccess(editingId, fullAccess);
-      setAccounts((prev) => prev.map((account) => (account.id === editingId ? { ...account, label, username, notes: notes || null, fullAccess } : account)));
+      await setAccountCategory(editingId, category || null);
+      await setAccountRegion(editingId, region || null);
+      setAccounts((prev) => prev.map((account) => (account.id === editingId ? { ...account, label, username, notes: notes || null, fullAccess, category: category || null, region: region || null } : account)));
       log('ok', `updated ${label || username}`);
       setEditingId(null);
     } catch (e) {
@@ -567,28 +576,96 @@ export function AccountsPage({ onLookup }: Props) {
   const searchActive        = query.length > 0;
   const canReorder          = !searchActive && !selectionMode && !controlsDisabled && accounts.length > 1;
   const showDragHandle      = !selectionMode && accounts.length > 1;
-  const filteredIds         = filteredAccounts.map((account) => account.id);
 
   const selectAllFiltered = () => {
     setSelectedIds(new Set(filteredAccounts.map((account) => account.id)));
   };
 
-  accountsRef.current         = accounts;
-  filteredAccountsRef.current = filteredAccounts;
+  const categoryGroups    = groupAccountsByCategory(filteredAccounts).filter((group) => group.accounts.length > 0);
+  const existingCategories = distinctCategories(accounts);
 
-  const handleReorder = (ids: string[]) => {
+  const isCategoryOpen = (key: string): boolean =>
+    key in categoryOpenState ? categoryOpenState[key] : readPersistedRecord(ACCOUNTS_CATEGORY_STATE_KEY, key, true);
+
+  const groupOpenByKey = new Map<string, boolean>();
+  const visibleRows: Account[] = [];
+  for (const group of categoryGroups) {
+    const effectiveOpen = searchActive || isCategoryOpen(group.key);
+    groupOpenByKey.set(group.key, effectiveOpen);
+    if (effectiveOpen) visibleRows.push(...group.accounts);
+  }
+  const indexById = new Map(visibleRows.map((account, i) => [account.id, i]));
+
+  const toggleCategory = (key: string) => {
+    const next = !isCategoryOpen(key);
+    writePersistedRecord(ACCOUNTS_CATEGORY_STATE_KEY, key, next);
+    setCategoryOpenState((prev) => ({ ...prev, [key]: next }));
+  };
+
+  accountsRef.current    = accounts;
+  visibleRowsRef.current = visibleRows;
+
+  const handleCategoryReorder = (categoryKey: string, ids: string[]) => {
     if (!canReorder) return;
     setAccounts((prev) => {
-      const byId = new Map(prev.map((account) => [account.id, account]));
-      const next = ids
-        .map((id) => byId.get(id))
-        .filter((account): account is Account => account !== undefined);
-      for (const account of prev) {
-        if (!ids.includes(account.id)) next.push(account);
+      const groups = groupAccountsByCategory(prev);
+      const target = groups.find((group) => group.key === categoryKey);
+      if (target) {
+        const byId      = new Map(target.accounts.map((account) => [account.id, account]));
+        const reordered = ids
+          .map((id) => byId.get(id))
+          .filter((account): account is Account => account !== undefined);
+        for (const account of target.accounts) {
+          if (!ids.includes(account.id)) reordered.push(account);
+        }
+        target.accounts = reordered;
       }
+      const next = groups.flatMap((group) => group.accounts);
       accountsRef.current = next;
       return next;
     });
+  };
+
+  const handleCategorySectionReorder = (orderedKeys: string[]) => {
+    if (!canReorder) return;
+    setAccounts((prev) => {
+      const groups = groupAccountsByCategory(prev);
+      const byKey  = new Map(groups.map((group) => [group.key, group]));
+      const reorderedGroups = orderedKeys
+        .map((key) => byKey.get(key))
+        .filter((group): group is ReturnType<typeof groupAccountsByCategory>[number] => group !== undefined);
+      const uncategorized = groups.filter((group) => group.key === UNCATEGORIZED_KEY);
+      const next = [...reorderedGroups, ...uncategorized].flatMap((group) => group.accounts);
+      accountsRef.current = next;
+      return next;
+    });
+  };
+
+  const renameCategory = async (oldKey: string, newTitle: string) => {
+    const targets = accounts.filter((account) => (account.category ?? '').trim().toLowerCase() === oldKey);
+    if (targets.length === 0) return;
+
+    const renamedIds: string[] = [];
+    const failures: string[]   = [];
+    for (const account of targets) {
+      try {
+        await setAccountCategory(account.id, newTitle);
+        renamedIds.push(account.id);
+      } catch (e) {
+        failures.push(`${account.label}: ${e}`);
+      }
+    }
+    if (renamedIds.length > 0) {
+      setAccounts((prev) => prev.map((account) => (renamedIds.includes(account.id) ? { ...account, category: newTitle } : account)));
+      log('ok', `renamed category to ${newTitle}`);
+    }
+    if (failures.length > 0) {
+      log('error', failures.join('\n'));
+      toast.error({
+        title: "Couldn't rename every account",
+        body : failures.slice(0, 3).join('\n'),
+      });
+    }
   };
 
   const persistOrder = useCallback(() => {
@@ -610,8 +687,8 @@ export function AccountsPage({ onLookup }: Props) {
 
   useEffect(() => () => endDragSelect(), [endDragSelect]);
 
-  const handleSelectPointerDown = (event: ReactPointerEvent<HTMLElement>, index: number, selected: boolean) => {
-    if (controlsDisabled) return;
+  const handleSelectPointerDown = (event: ReactPointerEvent<HTMLElement>, index: number | null, selected: boolean) => {
+    if (controlsDisabled || index === null) return;
 
     dragSelectRef.current = {
       active     : true,
@@ -648,9 +725,9 @@ export function AccountsPage({ onLookup }: Props) {
     }
   };
 
-  const handleSelectPointerEnter = (event: ReactPointerEvent<HTMLElement>, index: number) => {
+  const handleSelectPointerEnter = (event: ReactPointerEvent<HTMLElement>, index: number | null) => {
     const drag = dragSelectRef.current;
-    if (!drag?.active || !drag.dragging || event.pointerId !== drag.pointerId) return;
+    if (!drag?.active || !drag.dragging || index === null || event.pointerId !== drag.pointerId) return;
     applyDragRange(drag.anchorIndex, index, drag.mode);
   };
 
@@ -665,6 +742,70 @@ export function AccountsPage({ onLookup }: Props) {
       toggleSelect(accountId);
     }
   };
+
+  const renderCategoryGroup = (group: ReturnType<typeof groupAccountsByCategory>[number], reorderable: boolean) => (
+    <AccountCategorySection
+      key              = {group.key}
+      categoryKey      = {group.key}
+      title            = {group.title}
+      count            = {group.accounts.length}
+      open             = {groupOpenByKey.get(group.key) ?? true}
+      forceOpen        = {searchActive}
+      compact          = {compact}
+      reorderable      = {reorderable}
+      reorderEnabled   = {canReorder}
+      searchActive     = {searchActive}
+      onToggle         = {() => toggleCategory(group.key)}
+      onRename         = {(newTitle) => renameCategory(group.key, newTitle)}
+      onReorderDragEnd = {persistOrder}
+    >
+      <Reorder.Group
+        as                   = "div"
+        axis                 = "y"
+        values               = {group.accounts.map((account) => account.id)}
+        onReorder            = {(ids) => handleCategoryReorder(group.key, ids)}
+        className            = {`account-category-list${compact ? ' account-category-list--compact' : ''}`}
+        role                 = {selectionMode ? 'listbox' : undefined}
+        aria-multiselectable = {selectionMode ? true : undefined}
+      >
+        {group.accounts.map((account) => {
+          const index = indexById.get(account.id) ?? null;
+          return (
+            <AccountCard
+              key                  = {account.id}
+              account              = {account}
+              index                = {index}
+              compact              = {compact}
+              animate              = {animateList}
+              selectionMode        = {selectionMode}
+              selected             = {selectedIds.has(account.id)}
+              isLoggingIn          = {loggingInId === account.id}
+              copied               = {copiedId === account.id}
+              hideUsernames        = {hideUsernames}
+              disabled             = {controlsDisabled}
+              reorderEnabled       = {canReorder}
+              showDragHandle       = {showDragHandle}
+              searchActive         = {searchActive}
+              onReorderDragEnd     = {persistOrder}
+              onSelectPointerDown  = {(event) => handleSelectPointerDown(event, index, selectedIds.has(account.id))}
+              onSelectPointerMove  = {handleSelectPointerMove}
+              onSelectPointerEnter = {(event) => handleSelectPointerEnter(event, index)}
+              onSelectPointerUp    = {(event) => handleSelectPointerUp(event, account.id)}
+              onLogin              = {() => login(account)}
+              onCopyLabel          = {() => copyLabel(account)}
+              onLookup             = {() => onLookup(account.label)}
+              onEdit               = {() => setEditingId(account.id)}
+              onForget             = {() => requestForget(account)}
+              onRemove             = {() => requestRemove(account)}
+            />
+          );
+        })}
+      </Reorder.Group>
+    </AccountCategorySection>
+  );
+
+  const reorderableGroups = categoryGroups.filter((group) => group.key !== UNCATEGORIZED_KEY);
+  const uncategorizedGroup = categoryGroups.find((group) => group.key === UNCATEGORIZED_KEY);
 
   return (
     <main className = "accounts-page" data-tauri-drag-region>
@@ -779,11 +920,7 @@ export function AccountsPage({ onLookup }: Props) {
         )}
 
         <div className = "account-controls" data-tauri-drag-region>
-          <Reorder.Group
-            as                   = "div"
-            axis                 = "y"
-            values               = {filteredIds}
-            onReorder            = {handleReorder}
+          <div
             ref                  = {listRef}
             className            = {`account-list${compact ? ' account-list--compact' : ''}${isDragSelecting ? ' account-list--drag-selecting' : ''}`}
             role                 = {selectionMode ? 'listbox' : undefined}
@@ -843,36 +980,19 @@ export function AccountsPage({ onLookup }: Props) {
               <p className = "accounts-notice">No accounts match "{search}".</p>
             )}
 
-            {filteredAccounts.map((account, index) => (
-              <AccountCard
-                key                  = {account.id}
-                account              = {account}
-                index                = {index}
-                compact              = {compact}
-                animate              = {animateList}
-                selectionMode        = {selectionMode}
-                selected             = {selectedIds.has(account.id)}
-                isLoggingIn          = {loggingInId === account.id}
-                copied               = {copiedId === account.id}
-                hideUsernames        = {hideUsernames}
-                disabled             = {controlsDisabled}
-                reorderEnabled       = {canReorder}
-                showDragHandle       = {showDragHandle}
-                searchActive         = {searchActive}
-                onReorderDragEnd     = {persistOrder}
-                onSelectPointerDown  = {(event) => handleSelectPointerDown(event, index, selectedIds.has(account.id))}
-                onSelectPointerMove  = {handleSelectPointerMove}
-                onSelectPointerEnter = {(event) => handleSelectPointerEnter(event, index)}
-                onSelectPointerUp    = {(event) => handleSelectPointerUp(event, account.id)}
-                onLogin              = {() => login(account)}
-                onCopyLabel          = {() => copyLabel(account)}
-                onLookup             = {() => onLookup(account.label)}
-                onEdit               = {() => setEditingId(account.id)}
-                onForget             = {() => requestForget(account)}
-                onRemove             = {() => requestRemove(account)}
-              />
-            ))}
-          </Reorder.Group>
+            {!loadingAccounts && !accountsLoadError && reorderableGroups.length > 0 && (
+              <Reorder.Group
+                as        = "div"
+                axis      = "y"
+                values    = {reorderableGroups.map((group) => group.key)}
+                onReorder = {handleCategorySectionReorder}
+                className = "account-category-group-list"
+              >
+                {reorderableGroups.map((group) => renderCategoryGroup(group, true))}
+              </Reorder.Group>
+            )}
+            {!loadingAccounts && !accountsLoadError && uncategorizedGroup && renderCategoryGroup(uncategorizedGroup, false)}
+          </div>
 
           {anyActionInProgress && (
             <button type = "button" className = "app-btn app-btn-secondary app-btn-compact accounts-cancel-login" onClick = {cancelLogin}>
@@ -891,20 +1011,31 @@ export function AccountsPage({ onLookup }: Props) {
 
       <AnimatePresence>
         {adding && (
-          <AccountFormDialog key = "adding" mode = "add" error = {formError} saving = {saving} onSave = {submitAdd} onCancel = {closeAdd} />
+          <AccountFormDialog
+            key                = "adding"
+            mode               = "add"
+            existingCategories = {existingCategories}
+            error              = {formError}
+            saving             = {saving}
+            onSave             = {submitAdd}
+            onCancel           = {closeAdd}
+          />
         )}
         {editingAccount && (
           <AccountFormDialog
-            key               = "editing"
-            mode              = "edit"
-            initialLabel      = {editingAccount.label}
-            initialUsername   = {editingAccount.username}
-            initialNotes      = {editingAccount.notes ?? ''}
-            initialFullAccess = {editingAccount.fullAccess}
-            error             = {formError}
-            saving            = {saving}
-            onSave            = {submitEdit}
-            onCancel          = {closeEdit}
+            key                = "editing"
+            mode               = "edit"
+            initialLabel       = {editingAccount.label}
+            initialUsername    = {editingAccount.username}
+            initialNotes       = {editingAccount.notes ?? ''}
+            initialFullAccess  = {editingAccount.fullAccess}
+            initialCategory    = {editingAccount.category ?? ''}
+            initialRegion      = {editingAccount.region ?? ''}
+            existingCategories = {existingCategories}
+            error              = {formError}
+            saving             = {saving}
+            onSave             = {submitEdit}
+            onCancel           = {closeEdit}
           />
         )}
       </AnimatePresence>
@@ -939,7 +1070,7 @@ function AccountCard({
   onRemove,
 }: {
   account             : Account;
-  index               : number;
+  index               : number | null;
   compact             : boolean;
   animate             : boolean;
   selectionMode       : boolean;
@@ -974,6 +1105,20 @@ function AccountCard({
     <span    className = "app-badge app-badge-muted">{compact ? 'No saved session' : 'Fresh login'}</span>
     </Tooltip>
   );
+  const accessBadge = account.fullAccess ? (
+    <Tooltip content   = "Full access">
+    <span    className = "app-badge app-badge-primary">FA</span>
+    </Tooltip>
+  ) : (
+    <Tooltip content   = "Not full access">
+    <span    className = "app-badge app-badge-muted">NFA</span>
+    </Tooltip>
+  );
+  const regionBadge = account.region ? (
+    <Tooltip content   = "Region">
+    <span    className = "app-badge app-badge-muted">{account.region}</span>
+    </Tooltip>
+  ) : null;
 
   const dragHandle = showDragHandle ? (
     <Tooltip content = {reorderEnabled ? 'Drag to reorder' : searchActive ? 'Clear search to reorder' : 'Reorder unavailable right now'}>
@@ -996,7 +1141,7 @@ function AccountCard({
   const content = selectionMode ? (
     <div
       className                 = "account-row-select-label"
-      data-account-select-index = {index}
+      data-account-select-index = {index === null ? undefined : index}
       role                      = "option"
       aria-selected             = {selected}
       onPointerDown             = {onSelectPointerDown}
@@ -1020,6 +1165,8 @@ function AccountCard({
       <div  className = "account-row-body">
       <div  className = "account-row-top">
       <span className = "account-row-label">{account.label}</span>
+          {regionBadge}
+          {accessBadge}
           {sessionBadge}
         </div>
         <span className = {`account-row-username${hideUsernames ? ' account-row-username--masked' : ''}`} aria-label = {hideUsernames ? 'Username hidden' : undefined}>
@@ -1041,7 +1188,8 @@ function AccountCard({
               {copied ? 'Copied!' : account.label}
             </button>
           </Tooltip>
-          {sessionBadge}
+          {regionBadge}
+          {accessBadge}
         </div>
         <span className = {`account-row-username${hideUsernames ? ' account-row-username--masked' : ''}`} aria-label = {hideUsernames ? 'Username hidden' : undefined}>
           {displayUsername(account.username, hideUsernames)}
@@ -1060,6 +1208,9 @@ function AccountCard({
               {isLoggingIn ? 'Logging in...' : 'Login'}
             </button>
           </Tooltip>
+          <div     className = "account-row-login-group">
+          {sessionBadge}
+          <div     className = "account-row-lookup-row">
           <Tooltip content = "Open this account in Tools">
           <button  type    = "button" className = "app-btn app-btn-secondary app-btn-compact" disabled = {disabled} onClick = {onLookup}>
               Lookup
@@ -1072,6 +1223,8 @@ function AccountCard({
             onForget   = {onForget}
             onRemove   = {onRemove}
           />
+          </div>
+          </div>
         </div>
       </div>
     </>
@@ -1090,7 +1243,7 @@ function AccountCard({
       }}
       initial       = {animate ? { opacity: 0, y: 8 } : false}
       animate       = {animate ? { opacity: 1, y: 0 } : undefined}
-      transition    = {animate ? { duration: 0.18, delay: Math.min(index, 5) * 0.03, ease: [0.2, 0.7, 0.3, 1] } : undefined}
+      transition    = {animate ? { duration: 0.18, delay: Math.min(index ?? 0, 5) * 0.03, ease: [0.2, 0.7, 0.3, 1] } : undefined}
       {...(reorderEnabled ? {} : { 'data-tauri-drag-region': true })}
     >
       {content}

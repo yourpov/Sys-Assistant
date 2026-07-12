@@ -27,6 +27,14 @@ export function setAccountFullAccess(id: string, fullAccess: boolean): Promise<v
   return invoke('set_account_full_access', { id, fullAccess });
 }
 
+export function setAccountCategory(id: string, category: string | null): Promise<void> {
+  return invoke('set_account_category', { id, category });
+}
+
+export function setAccountRegion(id: string, region: string | null): Promise<void> {
+  return invoke('set_account_region', { id, region });
+}
+
 export function reorderAccounts(ids: string[]): Promise<void> {
   return invoke('reorder_accounts', { ids });
 }

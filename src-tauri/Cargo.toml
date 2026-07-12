@@ -1,6 +1,6 @@
 [package]
 name = "automate"
-version = "0.2.0"
+version = "0.3.0"
 description = "All in one assistant for the sysinfo.gg Private+TraceX product"
 edition = "2021"
 

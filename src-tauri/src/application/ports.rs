@@ -105,6 +105,8 @@ pub trait AccountStore: Send + Sync {
     fn password(&self, id: &str) -> Result<String, AppError>;
     fn set_notes(&self, id: &str, notes: Option<String>) -> Result<(), AppError>;
     fn set_full_access(&self, id: &str, full_access: bool) -> Result<(), AppError>;
+    fn set_category(&self, id: &str, category: Option<String>) -> Result<(), AppError>;
+    fn set_region(&self, id: &str, region: Option<String>) -> Result<(), AppError>;
     fn reorder(&self, ids: &[String]) -> Result<(), AppError>;
 }
 

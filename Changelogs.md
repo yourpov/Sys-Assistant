@@ -1,3 +1,17 @@
+# v0.3.0
+
+July 12, 2026
+
+## Added
+
+- account categories: group accounts into collapsible sections, drag to reorder them, and rename them anytime
+- account regions: tag an account's region (NA, EU, AP, KR, BR, LATAM, or random) so you don't need to write it in notes
+- full access status: see whether an account is FA or not on the accounts list
+
+## Changed
+
+- accounts page: session status was moved above the login button
+
 # v0.2.0
 
 July 1, 2026

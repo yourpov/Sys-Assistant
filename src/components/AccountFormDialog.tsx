@@ -2,6 +2,8 @@ import { motion }   from 'framer-motion';
 import { useState } from 'react';
 
 import type { UserFacingError } from '../utils/userError';
+import { ACCOUNT_REGIONS } from '../constants/accountRegions';
+import { Autocomplete } from './Autocomplete';
 import { ErrorDisplay } from './ErrorDisplay';
 import { Tooltip } from './Tooltip';
 
@@ -14,9 +16,12 @@ interface Props {
               initialUsername?: string;
               initialNotes   ?: string;
               initialFullAccess?: boolean;
+              initialCategory ?: string;
+              initialRegion   ?: string;
+              existingCategories: string[];
               error           : UserFacingError | null;
               saving          : boolean;
-              onSave          : (label: string, username: string, password: string, notes: string, fullAccess: boolean) => void;
+              onSave          : (label: string, username: string, password: string, notes: string, fullAccess: boolean, category: string, region: string) => void;
               onCancel        : () => void;
 }
 
@@ -26,6 +31,9 @@ export function AccountFormDialog({
   initialUsername = '',
   initialNotes = '',
   initialFullAccess = ACCESS_FA,
+  initialCategory = '',
+  initialRegion = '',
+  existingCategories,
   error,
   saving,
   onSave,
@@ -36,6 +44,8 @@ export function AccountFormDialog({
   const [password, setPassword]         = useState('');
   const [notes, setNotes]               = useState(initialNotes);
   const [fullAccess, setFullAccess]     = useState(initialFullAccess);
+  const [category, setCategory]         = useState(initialCategory);
+  const [region, setRegion]             = useState(initialRegion);
   const [showPassword, setShowPassword] = useState(false);
 
   const labelOk = !fullAccess || label.trim() !== '';
@@ -88,6 +98,23 @@ export function AccountFormDialog({
           </div>
         </div>
 
+        <div className = "add-account-field">
+          <span>Region (optional)</span>
+          <div className = "tools-subsection-pill-bar add-account-region-toggle" role = "group" aria-label = "Account region">
+            {ACCOUNT_REGIONS.map((r) => (
+              <button
+                key          = {r}
+                type         = "button"
+                className    = {`tools-subsection-pill${region === r ? ' active' : ''}`}
+                onClick      = {() => setRegion(region === r ? '' : r)}
+                aria-pressed = {region === r}
+              >
+                {r}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <label className = "add-account-field">
           <span>{fullAccess ? 'Display#name' : 'Display#name (optional)'}</span>
           <input type = "text" value = {label} onChange = {(e) => setLabel(e.target.value)} placeholder = "Main" autoFocus />
@@ -121,6 +148,16 @@ export function AccountFormDialog({
         </label>
 
         <label className = "add-account-field">
+          <span>Category (optional)</span>
+          <Autocomplete
+            value       = {category}
+            onChange    = {setCategory}
+            options     = {existingCategories}
+            placeholder = "e.g. NA, Smurfs, Main"
+          />
+        </label>
+
+        <label className = "add-account-field">
           <span>Notes (optional)</span>
           <textarea
             value       = {notes}
@@ -136,7 +173,7 @@ export function AccountFormDialog({
           </button>
           <button
             className = "dialog-confirm"
-            onClick   = {() => onSave(label.trim(), username.trim(), password, notes.trim(), fullAccess)}
+            onClick   = {() => onSave(label.trim(), username.trim(), password, notes.trim(), fullAccess, category.trim(), region)}
             disabled  = {!canSave}
           >
             {saving ? 'Saving...' : 'Save'}

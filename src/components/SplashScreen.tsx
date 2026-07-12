@@ -18,7 +18,7 @@ const FADE_DURATION_MS   = 300;
 const DISCORD_URL        = 'https://sys-info.xyz/discord';
 const TRACEX_URL         = 'https://sys-info.xyz/Private-TraceX-Bundle';
 
-const TAGLINE_PHRASES = ['Automation made easy',  'Version 0.2.0'];
+const TAGLINE_PHRASES = ['Automation made easy',  'Version 0.3.0'];
 
 const STATUS_COLORS: Record<string, string> = {
   online : 'bg-emerald-500',

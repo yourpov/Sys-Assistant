@@ -211,6 +211,8 @@ pub struct AccountDto {
     pub has_session : bool,
     pub notes       : Option<String>,
     pub full_access : bool,
+    pub category    : Option<String>,
+    pub region      : Option<String>,
 }
 
 impl From<Account> for AccountDto {
@@ -222,6 +224,8 @@ impl From<Account> for AccountDto {
             has_session : false,
             notes       : account.notes,
             full_access : account.full_access,
+            category    : account.category,
+            region      : account.region,
         }
     }
 }

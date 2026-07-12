@@ -42,6 +42,10 @@ struct StoredAccount {
     notes    : Option<String>,
     #[serde(default = "default_full_access")]
     full_access: bool,
+    #[serde(default)]
+    category : Option<String>,
+    #[serde(default)]
+    region   : Option<String>,
 }
 
 pub struct WindowsAccountStore {
@@ -97,6 +101,8 @@ impl AccountStore for WindowsAccountStore {
                 username    : a.username,
                 notes       : a.notes,
                 full_access : a.full_access,
+                category    : a.category,
+                region      : a.region,
             })
             .collect()
     }
@@ -116,12 +122,14 @@ impl AccountStore for WindowsAccountStore {
             username    : username.clone(),
             notes       : None,
             full_access : true,
+            category    : None,
+            region      : None,
         });
         if let Err(e) = self.save(&accounts) {
             self.delete_password(&id);
             return Err(e);
         }
-        Ok(Account { id, label, username, notes: None, full_access: true })
+        Ok(Account { id, label, username, notes: None, full_access: true, category: None, region: None })
     }
 
     fn update(&self, id: &str, label: String, username: String, password: Option<String>) -> Result<(), AppError> {
@@ -174,6 +182,28 @@ impl AccountStore for WindowsAccountStore {
             .find(|a| a.id == id)
             .ok_or_else(|| AppError::Account("that account no longer exists. refresh the list and try again".into()))?;
         account.full_access = full_access;
+        self.save(&accounts)
+    }
+
+    fn set_category(&self, id: &str, category: Option<String>) -> Result<(), AppError> {
+        let _guard = ACCOUNT_STORE_LOCK.lock().unwrap();
+        let mut accounts = self.load()?;
+        let account = accounts
+            .iter_mut()
+            .find(|a| a.id == id)
+            .ok_or_else(|| AppError::Account("that account no longer exists. refresh the list and try again".into()))?;
+        account.category = category.filter(|c| !c.trim().is_empty());
+        self.save(&accounts)
+    }
+
+    fn set_region(&self, id: &str, region: Option<String>) -> Result<(), AppError> {
+        let _guard = ACCOUNT_STORE_LOCK.lock().unwrap();
+        let mut accounts = self.load()?;
+        let account = accounts
+            .iter_mut()
+            .find(|a| a.id == id)
+            .ok_or_else(|| AppError::Account("that account no longer exists. refresh the list and try again".into()))?;
+        account.region = region.filter(|r| !r.trim().is_empty());
         self.save(&accounts)
     }
 

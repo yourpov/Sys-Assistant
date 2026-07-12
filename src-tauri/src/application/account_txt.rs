@@ -255,6 +255,8 @@ mod tests {
                 username    : "myAccount".into(),
                 notes       : None,
                 full_access : true,
+                category    : None,
+                region      : None,
             },
             Account {
                 id          : "2".into(),
@@ -262,6 +264,8 @@ mod tests {
                 username    : "EXAMPLE".into(),
                 notes       : None,
                 full_access : true,
+                category    : None,
+                region      : None,
             },
             Account {
                 id          : "3".into(),
@@ -269,6 +273,8 @@ mod tests {
                 username    : "DamniLoveMyKidd".into(),
                 notes       : None,
                 full_access : true,
+                category    : None,
+                region      : None,
             },
         ];
         let passwords = vec![

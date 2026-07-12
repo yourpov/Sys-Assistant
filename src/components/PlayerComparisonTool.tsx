@@ -393,7 +393,7 @@ export function PlayerComparisonTool({ onOpenSettings }: Props = {}) {
 
   const comparisonHint =
     bothLoaded && left.result && right.result
-      ? `Stats from each player's last ${Math.min(left.result.gamesPlayed, right.result.gamesPlayed)} match sample.`
+      ? `Stats from each player's last ${Math.min(left.result.gamesPlayed, right.result.gamesPlayed)} matches.`
       : undefined;
 
   return (

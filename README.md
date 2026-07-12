@@ -26,7 +26,7 @@ Tauri desktop app for the Sys-Info Valorant workflow. Replaces the old `.bat` au
 
 |                                              |                                              |
 | -------------------------------------------- | -------------------------------------------- |
-| ![splash](https://i.imgur.com/ok9N6h7.png)   | ![accounts](https://i.imgur.com/A6tDZ7i.png) |
+| ![splash](https://i.imgur.com/ok9N6h7.png)   | ![accounts](https://i.imgur.com/0RmNszs.png) |
 | ![tools](https://i.imgur.com/J0bOTFX.png)    | ![configs](https://i.imgur.com/7AqL95u.png)  |
 | ![settings](https://i.imgur.com/AqZ40A4.png) |                                              |
 

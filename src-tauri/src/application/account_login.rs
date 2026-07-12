@@ -83,7 +83,7 @@ mod tests {
 
     fn one_account_store() -> FakeAccountStore {
         FakeAccountStore {
-            accounts  : Mutex::new(vec![Account { id: "1".into(), label: "Main".into(), username: "forgotmyseed".into(), notes: None, full_access: true }]),
+            accounts  : Mutex::new(vec![Account { id: "1".into(), label: "Main".into(), username: "forgotmyseed".into(), notes: None, full_access: true, category: None, region: None }]),
             passwords : Mutex::new(HashMap::from([("1".to_string(), "secret".to_string())])),
         }
     }

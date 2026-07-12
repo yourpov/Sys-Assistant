@@ -144,6 +144,8 @@ pub fn run() {
             commands::accounts::remove_account,
             commands::accounts::set_account_notes,
             commands::accounts::set_account_full_access,
+            commands::accounts::set_account_category,
+            commands::accounts::set_account_region,
             commands::accounts::reorder_accounts,
             commands::accounts::login_account,
             commands::accounts::forget_account_session,

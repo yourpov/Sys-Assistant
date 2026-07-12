@@ -196,7 +196,7 @@ impl AccountStore for FakeAccountStore {
         self.accounts.lock().unwrap().clone()
     }
     fn add(&self, label: String, username: String, _password: String) -> Result<Account, AppError> {
-        Ok(Account { id: "fake".into(), label, username, notes: None, full_access: true })
+        Ok(Account { id: "fake".into(), label, username, notes: None, full_access: true, category: None, region: None })
     }
     fn update(&self, _id: &str, _label: String, _username: String, _password: Option<String>) -> Result<(), AppError> {
         Ok(())
@@ -211,6 +211,12 @@ impl AccountStore for FakeAccountStore {
         Ok(())
     }
     fn set_full_access(&self, _id: &str, _full_access: bool) -> Result<(), AppError> {
+        Ok(())
+    }
+    fn set_category(&self, _id: &str, _category: Option<String>) -> Result<(), AppError> {
+        Ok(())
+    }
+    fn set_region(&self, _id: &str, _region: Option<String>) -> Result<(), AppError> {
         Ok(())
     }
     fn reorder(&self, ids: &[String]) -> Result<(), AppError> {

@@ -147,6 +147,8 @@ export interface Account {
   hasSession : boolean;
   notes      : string | null;
   fullAccess : boolean;
+  category   : string | null;
+  region     : string | null;
 }
 
 export interface AppCredit {

@@ -51,6 +51,16 @@ pub fn set_account_full_access(state: State<'_, AppState>, id: String, full_acce
 }
 
 #[tauri::command]
+pub fn set_account_category(state: State<'_, AppState>, id: String, category: Option<String>) -> Result<(), InvokeErrorDto> {
+    state.accounts.set_category(&id, category).map_err(invoke_err)
+}
+
+#[tauri::command]
+pub fn set_account_region(state: State<'_, AppState>, id: String, region: Option<String>) -> Result<(), InvokeErrorDto> {
+    state.accounts.set_region(&id, region).map_err(invoke_err)
+}
+
+#[tauri::command]
 pub fn reorder_accounts(state: State<'_, AppState>, ids: Vec<String>) -> Result<(), InvokeErrorDto> {
     state.accounts.reorder(&ids).map_err(invoke_err)
 }
