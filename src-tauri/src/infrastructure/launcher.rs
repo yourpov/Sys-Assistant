@@ -87,7 +87,20 @@ impl ProcessLauncher for WindowsLauncher {
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
 
-        let (_, _, status) = tokio::join!(forward_lines(stdout, sink), forward_lines(stderr, sink), child.wait());
+        let stdout_forward = forward_lines(stdout, sink);
+        let stderr_forward = forward_lines(stderr, sink);
+        tokio::pin!(stdout_forward);
+        tokio::pin!(stderr_forward);
+
+        let mut stdout_done = false;
+        let mut stderr_done = false;
+        let status = loop {
+            tokio::select! {
+                () = &mut stdout_forward, if !stdout_done => stdout_done = true,
+                () = &mut stderr_forward, if !stderr_done => stderr_done = true,
+                status = child.wait() => break status,
+            }
+        };
         status.map_err(|e| AppError::Launch(path.display().to_string(), e.to_string()))?;
         Ok(())
     }

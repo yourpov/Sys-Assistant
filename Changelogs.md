@@ -12,9 +12,13 @@ July 12, 2026
 
 - accounts page: session status was moved above the login button
 
+## Fixed
+
+- emu installer: sometimes got stuck if `Auto-fix 55% loader error` was enabled
+
 # v0.2.0
 
-July 1, 2026
+July 10, 2026
 
 ## Added
 
