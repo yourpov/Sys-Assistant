@@ -1,5 +1,4 @@
 use std::path::PathBuf;
-use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
@@ -30,19 +29,20 @@ pub enum ManualActionDto {
     ChangeSeed,
     OpenEmuInstaller,
     RestartValorant,
-    CreateSession,
+    #[serde(other)]
+    Unknown,
 }
 
-impl From<ManualActionDto> for ManualAction {
-    fn from(dto: ManualActionDto) -> Self {
-        match dto {
-            ManualActionDto::ToggleValorant => ManualAction::ToggleValorant,
-            ManualActionDto::ToggleRiotClient => ManualAction::ToggleRiotClient,
-            ManualActionDto::OpenLoader => ManualAction::OpenLoader,
-            ManualActionDto::ChangeSeed => ManualAction::ChangeSeed,
-            ManualActionDto::OpenEmuInstaller => ManualAction::OpenEmuInstaller,
-            ManualActionDto::RestartValorant => ManualAction::RestartValorant,
-            ManualActionDto::CreateSession => ManualAction::CreateSession,
+impl ManualActionDto {
+    pub fn into_action(self) -> Option<ManualAction> {
+        match self {
+            ManualActionDto::ToggleValorant => Some(ManualAction::ToggleValorant),
+            ManualActionDto::ToggleRiotClient => Some(ManualAction::ToggleRiotClient),
+            ManualActionDto::OpenLoader => Some(ManualAction::OpenLoader),
+            ManualActionDto::ChangeSeed => Some(ManualAction::ChangeSeed),
+            ManualActionDto::OpenEmuInstaller => Some(ManualAction::OpenEmuInstaller),
+            ManualActionDto::RestartValorant => Some(ManualAction::RestartValorant),
+            ManualActionDto::Unknown => None,
         }
     }
 }
@@ -56,7 +56,6 @@ impl From<ManualAction> for ManualActionDto {
             ManualAction::ChangeSeed => ManualActionDto::ChangeSeed,
             ManualAction::OpenEmuInstaller => ManualActionDto::OpenEmuInstaller,
             ManualAction::RestartValorant => ManualActionDto::RestartValorant,
-            ManualAction::CreateSession => ManualActionDto::CreateSession,
         }
     }
 }
@@ -64,19 +63,17 @@ impl From<ManualAction> for ManualActionDto {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IssueReportDto {
-    pub riot_running           : bool,
-    pub stay_signed_in         : bool,
-    pub core_isolation_enabled : bool,
-    pub missing_files          : Vec<String>,
+    pub riot_running   : bool,
+    pub stay_signed_in : bool,
+    pub missing_files  : Vec<String>,
 }
 
 impl From<&IssueReport> for IssueReportDto {
     fn from(report: &IssueReport) -> Self {
         Self {
-            riot_running           : report.riot_running,
-            stay_signed_in         : report.stay_signed_in,
-            core_isolation_enabled : report.core_isolation_enabled,
-            missing_files          : report.missing_files.clone(),
+            riot_running   : report.riot_running,
+            stay_signed_in : report.stay_signed_in,
+            missing_files  : report.missing_files.clone(),
         }
     }
 }
@@ -84,10 +81,9 @@ impl From<&IssueReport> for IssueReportDto {
 impl From<IssueReportDto> for IssueReport {
     fn from(dto: IssueReportDto) -> Self {
         Self {
-            riot_running           : dto.riot_running,
-            stay_signed_in         : dto.stay_signed_in,
-            core_isolation_enabled : dto.core_isolation_enabled,
-            missing_files          : dto.missing_files,
+            riot_running   : dto.riot_running,
+            stay_signed_in : dto.stay_signed_in,
+            missing_files  : dto.missing_files,
         }
     }
 }
@@ -119,55 +115,43 @@ pub struct LogLineDto {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsDto {
-    pub temp_open_val_enabled          : bool,
-    pub temp_val_wait_secs             : u64,
-    pub sesh_wait_secs                 : u64,
-    pub emu_path                       : Option<String>,
-    pub loader_path                    : Option<String>,
-    pub sesh_path                      : Option<String>,
-    pub is_always_on_top               : bool,
-    pub insert_sim_enabled             : bool,
-    pub insert_sim_keybind             : Option<String>,
-    pub manual_actions_enabled         : Vec<ManualActionDto>,
-    pub account_swap_pool              : Vec<String>,
-    pub henrik_api_keys                : Vec<String>,
-    pub sesh_watchdog_enabled          : bool,
-    pub anti_temp_ban_enabled          : bool,
+    pub emu_path                           : Option<String>,
+    pub loader_path                        : Option<String>,
+    pub is_always_on_top                   : bool,
+    pub insert_sim_enabled                 : bool,
+    pub insert_sim_keybind                 : Option<String>,
+    pub manual_actions_enabled             : Vec<ManualActionDto>,
+    pub account_swap_pool                  : Vec<String>,
+    pub henrik_api_keys                    : Vec<String>,
     pub install_emu_on_riot_launch_enabled : bool,
-    pub auto_fix_55_enabled                : bool,
-    pub toast_os_notifications_enabled : bool,
-    pub confirm_before_actions_enabled : bool,
-    pub hide_account_usernames         : bool,
-    pub reduce_animations_enabled      : bool,
-    pub mute_alert_sounds_enabled      : bool,
-    pub accent_color                   : Option<String>,
+    pub auto_fix_55_enabled                    : bool,
+    pub toast_os_notifications_enabled     : bool,
+    pub confirm_before_actions_enabled     : bool,
+    pub hide_account_usernames             : bool,
+    pub reduce_animations_enabled          : bool,
+    pub mute_alert_sounds_enabled          : bool,
+    pub accent_color                       : Option<String>,
 }
 
 impl From<&Settings> for SettingsDto {
     fn from(settings: &Settings) -> Self {
         Self {
-            temp_open_val_enabled          : settings.temp_open_val_enabled,
-            temp_val_wait_secs             : settings.temp_val_wait.as_secs(),
-            sesh_wait_secs                 : settings.sesh_wait.as_secs(),
-            emu_path                       : settings.emu_path.as_ref().map(|p| p.display().to_string()),
-            loader_path                    : settings.loader_path.as_ref().map(|p| p.display().to_string()),
-            sesh_path                      : settings.sesh_path.as_ref().map(|p| p.display().to_string()),
-            is_always_on_top               : settings.is_always_on_top,
-            insert_sim_enabled             : settings.insert_sim_enabled,
-            insert_sim_keybind             : settings.insert_sim_keybind.clone(),
-            manual_actions_enabled         : settings.manual_actions_enabled.iter().map(|a| (*a).into()).collect(),
-            account_swap_pool              : settings.account_swap_pool.clone(),
-            henrik_api_keys                : settings.henrik_api_keys.clone(),
-            sesh_watchdog_enabled          : settings.sesh_watchdog_enabled,
-            anti_temp_ban_enabled          : settings.anti_temp_ban_enabled,
+            emu_path                           : settings.emu_path.as_ref().map(|p| p.display().to_string()),
+            loader_path                        : settings.loader_path.as_ref().map(|p| p.display().to_string()),
+            is_always_on_top                   : settings.is_always_on_top,
+            insert_sim_enabled                 : settings.insert_sim_enabled,
+            insert_sim_keybind                 : settings.insert_sim_keybind.clone(),
+            manual_actions_enabled             : settings.manual_actions_enabled.iter().map(|a| (*a).into()).collect(),
+            account_swap_pool                  : settings.account_swap_pool.clone(),
+            henrik_api_keys                    : settings.henrik_api_keys.clone(),
             install_emu_on_riot_launch_enabled : settings.install_emu_on_riot_launch_enabled,
-            auto_fix_55_enabled                : settings.auto_fix_55_enabled,
-            toast_os_notifications_enabled : settings.toast_os_notifications_enabled,
-            confirm_before_actions_enabled : settings.confirm_before_actions_enabled,
-            hide_account_usernames         : settings.hide_account_usernames,
-            reduce_animations_enabled      : settings.reduce_animations_enabled,
-            mute_alert_sounds_enabled      : settings.mute_alert_sounds_enabled,
-            accent_color                   : settings.accent_color.clone(),
+            auto_fix_55_enabled                    : settings.auto_fix_55_enabled,
+            toast_os_notifications_enabled     : settings.toast_os_notifications_enabled,
+            confirm_before_actions_enabled     : settings.confirm_before_actions_enabled,
+            hide_account_usernames             : settings.hide_account_usernames,
+            reduce_animations_enabled          : settings.reduce_animations_enabled,
+            mute_alert_sounds_enabled          : settings.mute_alert_sounds_enabled,
+            accent_color                       : settings.accent_color.clone(),
         }
     }
 }
@@ -175,28 +159,22 @@ impl From<&Settings> for SettingsDto {
 impl From<SettingsDto> for Settings {
     fn from(dto: SettingsDto) -> Self {
         Self {
-            temp_open_val_enabled          : dto.temp_open_val_enabled,
-            temp_val_wait                  : Duration::from_secs(dto.temp_val_wait_secs),
-            sesh_wait                      : Duration::from_secs(dto.sesh_wait_secs),
-            emu_path                       : dto.emu_path.map(PathBuf::from),
-            loader_path                    : dto.loader_path.map(PathBuf::from),
-            sesh_path                      : dto.sesh_path.map(PathBuf::from),
-            is_always_on_top               : dto.is_always_on_top,
-            insert_sim_enabled             : dto.insert_sim_enabled,
-            insert_sim_keybind             : dto.insert_sim_keybind,
-            manual_actions_enabled         : dto.manual_actions_enabled.into_iter().map(Into::into).collect(),
-            account_swap_pool              : dto.account_swap_pool,
-            henrik_api_keys                : dto.henrik_api_keys,
-            sesh_watchdog_enabled          : dto.sesh_watchdog_enabled,
-            anti_temp_ban_enabled          : dto.anti_temp_ban_enabled,
+            emu_path                           : dto.emu_path.map(PathBuf::from),
+            loader_path                        : dto.loader_path.map(PathBuf::from),
+            is_always_on_top                   : dto.is_always_on_top,
+            insert_sim_enabled                 : dto.insert_sim_enabled,
+            insert_sim_keybind                 : dto.insert_sim_keybind,
+            manual_actions_enabled             : dto.manual_actions_enabled.into_iter().filter_map(ManualActionDto::into_action).collect(),
+            account_swap_pool                  : dto.account_swap_pool,
+            henrik_api_keys                    : dto.henrik_api_keys,
             install_emu_on_riot_launch_enabled : dto.install_emu_on_riot_launch_enabled,
-            auto_fix_55_enabled                : dto.auto_fix_55_enabled,
-            toast_os_notifications_enabled : dto.toast_os_notifications_enabled,
-            confirm_before_actions_enabled : dto.confirm_before_actions_enabled,
-            hide_account_usernames         : dto.hide_account_usernames,
-            reduce_animations_enabled      : dto.reduce_animations_enabled,
-            mute_alert_sounds_enabled      : dto.mute_alert_sounds_enabled,
-            accent_color                   : dto.accent_color,
+            auto_fix_55_enabled                    : dto.auto_fix_55_enabled,
+            toast_os_notifications_enabled     : dto.toast_os_notifications_enabled,
+            confirm_before_actions_enabled     : dto.confirm_before_actions_enabled,
+            hide_account_usernames             : dto.hide_account_usernames,
+            reduce_animations_enabled          : dto.reduce_animations_enabled,
+            mute_alert_sounds_enabled          : dto.mute_alert_sounds_enabled,
+            accent_color                       : dto.accent_color,
             ..Settings::default()
         }
     }

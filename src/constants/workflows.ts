@@ -17,16 +17,16 @@ export interface AutomationMethod {
 
 export const AUTOMATION_METHODS: AutomationMethod[] = [
   {
-    id     : 'hamad',
+    id     : 'start-process',
     action : 'start',
-    label  : 'Hamad Method',
-    hint   : 'Changes emu seed, runs loader, and creates a session',
+    label  : 'Start Process',
+    hint   : 'Runs emu installer, then ldr.exe, then VALORANT',
   },
   {
     id     : 'account-swap',
     action : 'accountSwap',
     label  : 'Account Swap',
-    hint   : 'Signs in to the next account in rotation, then runs the Hamad method',
+    hint   : 'Signs in to the next account in rotation, then runs Start Process',
   },
 ];
 

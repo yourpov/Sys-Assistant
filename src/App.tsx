@@ -85,7 +85,7 @@ export function App() {
       if (pool.length === 0) {
         const notice = {
           title: "Account Swap isn't set up",
-          body : 'Choose which accounts to rotate through in Settings > Automation > Accounts for Account Swap.',
+          body : 'Choose which accounts to rotate through in Settings > Automation > Account Swap.',
         };
         if (await workflow.confirmUnlessAborted(notice, { confirmLabel: 'Go to Settings' })) {
           setPage('settings');

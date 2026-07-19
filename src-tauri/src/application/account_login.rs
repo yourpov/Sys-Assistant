@@ -30,6 +30,7 @@ pub async fn login(
     let install_dir = ports.riot_runtime.install_path().await.and_then(|path| path.parent().map(|p| p.to_path_buf()));
 
     ports.processes.kill_all(RIOT_CLIENT_PROCESS).await;
+    ports.riot_session.invalidate_login_cache();
     run_workflow::wait_for_process_gone(ports, RIOT_CLIENT_PROCESS, RIOT_KILL_POLL_INTERVAL, RIOT_KILL_TIMEOUT, stop).await?;
     run_workflow::sleep_cancellable(POST_KILL_BUFFER, stop).await?;
 
@@ -38,7 +39,16 @@ pub async fn login(
         sessions.restore(account_id, install_dir.as_deref(), &*ports.sink)?;
         ports.sink.emit_line(LogLevel::Info, "opening the riot client...");
         run_workflow::ensure_riot_running(ports, stop).await?;
+        run_workflow::wait_for_riot_to_settle(ports, stop).await?;
         run_workflow::check_cancelled(stop)?;
+        if !ports.riot_session.is_logged_in().await {
+            ports.sink.emit_line(LogLevel::Info, "waiting for the restored session to finish signing in");
+            if !run_workflow::wait_for_riot_login(ports, stop).await? {
+                return Err(AppError::RiotClient(
+                    "restored the session but the riot client never finished signing in. try signing in fresh for this account".into(),
+                ));
+            }
+        }
         ports.sink.emit_line(LogLevel::Ok, &format!("restored the saved session and logged in to {}", account.label));
         return Ok(());
     }
@@ -66,6 +76,14 @@ pub async fn login(
     ports.riot_session.enable_stay_signed_in().await?;
     run_workflow::check_cancelled(stop)?;
     run_workflow::wait_for_riot_to_settle(ports, stop).await?;
+    if !ports.riot_session.is_logged_in().await {
+        ports.sink.emit_line(LogLevel::Info, "waiting for the riot client to finish signing in");
+        if !run_workflow::wait_for_riot_login(ports, stop).await? {
+            return Err(AppError::RiotClient(
+                "filled in the login details but the riot client never finished signing in. try again".into(),
+            ));
+        }
+    }
     sessions.save(account_id, install_dir.as_deref(), &*ports.sink)?;
     ports.sink.emit_line(LogLevel::Ok, &format!("signed in fresh and logged in to {}", account.label));
     Ok(())

@@ -6,7 +6,7 @@ use crate::domain::{CheckOutcome, IssueReport, Settings};
 use crate::error::AppError;
 
 const EMU_INSTALLER_EXE: &str       = "emu_installer.exe";
-const LOADER_EXE: &str              = "ldr.novgk.exe";
+const LOADER_EXE: &str              = "ldr.exe";
 const VANGUARD_CLIENT_SERVICE: &str = "vgc";
 const VANGUARD_KERNEL_SERVICE: &str = "vgk";
 const RIOT_RESTART_SETTLE: Duration = Duration::from_secs(2);
@@ -26,24 +26,40 @@ pub async fn check(ports: &Ports, settings: &Settings, stop: &StopToken) -> Resu
     ensure_vc_redist(ports, stop).await?;
     super::run_workflow::check_cancelled(stop)?;
 
-    let core_isolation_enabled = ports.system_health.is_core_isolation_enabled()?;
     super::run_workflow::check_cancelled(stop)?;
-    if core_isolation_enabled {
-        super::run_workflow::emit_checked(ports, stop, LogLevel::Ok, "core isolation (memory integrity) is on")?;
-    } else if ports.system_health.is_windows_11() {
+    if ports.system_health.is_core_isolation_enabled()? {
         super::run_workflow::emit_checked(
             ports,
             stop,
             LogLevel::Warn,
-            "core isolation (memory integrity) is off. vanguard needs this on windows 11. turn it on in windows security > device security, then restart",
+            "core isolation (memory integrity) is on. recommended off: windows security > device security > core isolation, then restart",
         )?;
     } else {
+        super::run_workflow::emit_checked(ports, stop, LogLevel::Ok, "core isolation (memory integrity) is off")?;
+    }
+
+    super::run_workflow::check_cancelled(stop)?;
+    if ports.system_health.is_vulnerable_driver_blocklist_enabled()? {
         super::run_workflow::emit_checked(
             ports,
             stop,
             LogLevel::Warn,
-            "core isolation (memory integrity) is off. turn it on in windows security > device security if vanguard requires it, then restart",
+            "microsoft vulnerable driver blocklist is on. recommended off: windows security > device security > core isolation details, then restart",
         )?;
+    } else {
+        super::run_workflow::emit_checked(ports, stop, LogLevel::Ok, "microsoft vulnerable driver blocklist is off")?;
+    }
+
+    super::run_workflow::check_cancelled(stop)?;
+    if ports.system_health.is_lsa_protection_enabled()? {
+        super::run_workflow::emit_checked(
+            ports,
+            stop,
+            LogLevel::Warn,
+            "local security authority protection is on. suggested off: windows security > device security > core isolation details",
+        )?;
+    } else {
+        super::run_workflow::emit_checked(ports, stop, LogLevel::Ok, "local security authority protection is off")?;
     }
 
     super::run_workflow::check_cancelled(stop)?;
@@ -70,7 +86,7 @@ pub async fn check(ports: &Ports, settings: &Settings, stop: &StopToken) -> Resu
     }
 
     super::run_workflow::check_cancelled(stop)?;
-    let report = IssueReport { riot_running, stay_signed_in, core_isolation_enabled, missing_files };
+    let report = IssueReport { riot_running, stay_signed_in, missing_files };
     let count  = report.issue_count();
     if count == 0 {
         super::run_workflow::emit_checked(ports, stop, LogLevel::Ok, "all good")?;
@@ -99,17 +115,11 @@ pub async fn fix(report: &IssueReport, ports: &Ports, stop: &StopToken) -> Resul
     }
     super::run_workflow::check_cancelled(stop)?;
     if !report.can_auto_fix() {
-        let mut reasons: Vec<String> = report
+        let reasons: Vec<String> = report
             .missing_files
             .iter()
             .map(|f| format!("{f} wasn't found in the app folder or its subfolders. add it there, or set its path in Settings"))
             .collect();
-        if !report.core_isolation_enabled {
-            reasons.push(
-                "Core isolation (Memory integrity) needs to be turned on manually in Windows Security > Device security, then your PC restarted"
-                    .into(),
-            );
-        }
         super::run_workflow::check_cancelled(stop)?;
         return Err(AppError::Service(reasons.join(". also: ")));
     }
@@ -155,11 +165,19 @@ async fn check_vanguard(ports: &Ports, stop: &StopToken) -> Result<(), AppError>
     }
 
     if client == ServiceState::Running && kernel == ServiceState::Running {
-        super::run_workflow::emit_checked(ports, stop, LogLevel::Ok, "vgc/vgk are running")?;
-    } else {
-        super::run_workflow::emit_checked(ports, stop, LogLevel::Warn, "vgc/vgk not running (normal if Vanguard On-Demand is enabled)")?;
+        super::run_workflow::emit_checked(ports, stop, LogLevel::Ok, "vgc/vgk are both running")?;
+        return Ok(());
     }
-    Ok(())
+
+    let not_running = match (client == ServiceState::Running, kernel == ServiceState::Running) {
+        (false, false) => "vgc and vgk (vanguard) aren't running",
+        (false, true)  => "vgc (vanguard) isn't running",
+        (true, false)  => "vgk (vanguard) isn't running",
+        (true, true)   => unreachable!(),
+    };
+    Err(AppError::Service(format!(
+        "{not_running}. both services must be running. start Riot Client / Vanguard, or reboot after installing, then try again"
+    )))
 }
 
 async fn ensure_vc_redist(ports: &Ports, stop: &StopToken) -> Result<(), AppError> {
@@ -197,7 +215,7 @@ mod tests {
     use super::*;
 
     fn no_wait_settings() -> Settings {
-        Settings { temp_val_wait: Duration::from_millis(1), sesh_wait: Duration::from_millis(1), ..Settings::default() }
+        Settings { ..Settings::default() }
     }
 
     #[test]

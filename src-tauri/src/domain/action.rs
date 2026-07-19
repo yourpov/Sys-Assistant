@@ -12,5 +12,4 @@ pub enum ManualAction {
     ChangeSeed,
     OpenEmuInstaller,
     RestartValorant,
-    CreateSession,
 }

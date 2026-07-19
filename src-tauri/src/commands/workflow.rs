@@ -39,7 +39,15 @@ pub async fn run_action(state: State<'_, AppState>, action: WorkflowActionDto) -
 pub async fn run_manual_action(state: State<'_, AppState>, action: ManualActionDto) -> Result<(), InvokeErrorDto> {
     let guard    = try_take_stop_token(&state)?;
     let settings = state.current_settings();
-    manual_actions::run(action.into(), &settings, &state.ports, &guard.token)
+    let action   = action.into_action().ok_or_else(|| {
+        invoke_err_msg(
+            "invalid_manual_action",
+            "That manual action isn't available anymore",
+            "Refresh the app or pick a different action from Manual steps.",
+            "manual action removed",
+        )
+    })?;
+    manual_actions::run(action, &settings, &state.ports, &guard.token)
         .await
         .inspect_err(|e| log_failure(&state.ports, e))
         .map_err(invoke_err)
@@ -50,8 +58,8 @@ pub async fn run_account_swap(state: State<'_, AppState>, account_ids: Vec<Strin
     let _flow_guard = AccountRiotFlowGuard::new(&state);
     let guard       = try_take_stop_token(&state)?;
     let settings    = state.current_settings();
-    let last_used   = lock_or_recover(&state.account_swap_last_used).clone();
-    let result      = account_swap::run(
+    let last_used = lock_or_recover(&state.account_swap_last_used).clone();
+    let result = account_swap::run(
         &account_ids,
         last_used.as_deref(),
         state.accounts.as_ref(),

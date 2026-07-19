@@ -196,17 +196,16 @@ const FILES_AND_FOLDERS: CopyableEntry[] = [
   {
     title      : 'Automation files',
     description: 
-      'The files are not provided with the app. These files are from the private Sys-Info community. They are meant to be placed beside the app or set paths under Settings > Automation > Files Locations. Only these three .exe files are detected and ran.',
+      'The files are not provided with the app. These files are from the private Sys-Info community. They are meant to be placed beside the app or set paths under Settings > Automation > Files Locations. Only these two .exe files are detected and ran.',
     copies: [
       { label: 'Emu installer', value: 'emu_installer.exe' },
-      { label: 'Loader', value: 'ldr.novgk.exe' },
-      { label: 'Sesh', value: 'sesh.exe' },
+      { label: 'Loader', value: 'ldr.exe' },
     ],
   },
   {
     title      : 'File dialogs you control',
     description: 
-      'Account .txt export and import on the Accounts page, and optional emu/loader/sesh .exe paths under Settings > Automation > Files Locations.',
+      'Account .txt export and import on the Accounts page, and optional emu/loader .exe paths under Settings > Automation > Files Locations.',
     copies: [],
   },
   {
@@ -234,7 +233,7 @@ const WINDOWS_SYSTEM_CHANGES: CopyableEntry[] = [
   },
   {
     title      : 'Registry reads only',
-    description: 'Core Isolation (HVCI) status, VC++ redistributable installed, and Windows build number.',
+    description: 'Core Isolation (HVCI), Microsoft Vulnerable Driver Blocklist, Local Security Authority protection, VC++ redistributable installed, and Windows build number.',
     copies     : [],
   },
 ];
@@ -269,12 +268,10 @@ function transparencyBlocks(onOpenToolsMatch?: () => void): TransparencyBlock[] 
   {
     title: 'Programs controlled or monitored',
     items: [
-      'Launches, monitors, or closes: RiotClientServices, VALORANT, sesh.exe, ldr.novgk.exe, and emu_installer.exe.',
+      'Launches, monitors, or closes: RiotClientServices, VALORANT, ldr.exe, and emu_installer.exe.',
       'Windows services vgc and vgk: queried and can be started for Vanguard-related steps.',
       'Riot login window: UI automation fills username and password and toggles stay signed in during Account Swap.',
       'Global hotkey (optional): simulates your configured key plus Insert for in-game actions.',
-      'Session watchdog (optional): every 5s, relaunches sesh.exe if Valorant is running but sesh stopped.',
-      'Anti-Temp Ban watchdog (optional): every 5s, re-runs the Hamad Method if sesh.exe closes while Valorant is still running.',
       'Install emu on Riot launch (optional): every 3s, runs emu_installer silently when you open the Riot Client yourself. Skipped during account login and Account Swap.',
       'shutdown /r /t 0: restarts your PC if you confirm after Remote Desktop is disabled.',
       'ipconfig /flushdns: runs during the Auto-fix 55% loader error flow.',

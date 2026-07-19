@@ -1,7 +1,7 @@
 use rand::seq::SliceRandom;
 
 use super::account_login;
-use super::ports::{AccountStore, Ports, RiotLogin, SessionSnapshotStore};
+use super::ports::{AccountStore, LogLevel, Ports, RiotLogin, SessionSnapshotStore};
 use super::run_workflow::{self, StopToken};
 use crate::domain::Settings;
 use crate::error::AppError;
@@ -14,6 +14,11 @@ pub fn pick_next_account(pool: &[String], last_used: Option<&str>) -> Option<Str
     others.choose(&mut rand::thread_rng()).map(|s| s.to_string()).or_else(|| pool.first().cloned())
 }
 
+pub fn filter_existing_accounts(pool: &[String], accounts: &dyn AccountStore) -> Vec<String> {
+    let existing: std::collections::HashSet<String> = accounts.list().into_iter().map(|a| a.id).collect();
+    pool.iter().filter(|id| existing.contains(id.as_str())).cloned().collect()
+}
+
 pub async fn run(
     pool      : &[String],
     last_used : Option<&str>,
@@ -24,31 +29,32 @@ pub async fn run(
     ports     : &Ports,
     stop      : &StopToken,
 ) -> Result<String, AppError> {
-    let account_id = pick_next_account(pool, last_used)
+    let pool = filter_existing_accounts(pool, accounts);
+    let last_used = last_used.filter(|id| pool.iter().any(|p| p == id));
+
+    let account_id = pick_next_account(&pool, last_used)
         .ok_or_else(|| AppError::Account("no accounts chosen for Account Swap. select at least one in Settings, Automation and try again".into()))?;
 
     run_workflow::check_cancelled(stop)?;
     run_workflow::find_required(ports, run_workflow::LOADER_EXE, settings.loader_path.as_deref())?;
-    run_workflow::ensure_sesh(ports, settings, stop).await?;
+    run_workflow::find_required(ports, run_workflow::EMU_INSTALLER_EXE, settings.emu_path.as_deref())?;
 
     run_workflow::close_valorant_if_running(ports, settings, stop).await?;
     account_login::login(&account_id, accounts, sessions, riot_login, ports, stop).await?;
 
-    run_workflow::wait_for_riot_to_settle(ports, stop).await?;
-    if settings.auto_fix_55_enabled {
-        run_workflow::apply_55_fix(ports, settings, stop).await?;
-    }
+    run_workflow::run_post_login_start_process(ports, settings, stop).await?;
 
-    run_workflow::run_loader(ports, settings, stop).await?;
-    run_workflow::open_valorant(ports, settings, stop).await?;
-    run_workflow::start_session(ports, settings, stop, true).await?;
-
+    ports.sink.emit_line(LogLevel::Ok, "ready");
     Ok(account_id)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::application::test_support::FakeAccountStore;
+    use crate::domain::Account;
+    use std::collections::HashMap;
+    use std::sync::Mutex;
 
     #[test]
     fn one_account_always_picks_that_account() {
@@ -76,5 +82,23 @@ mod tests {
             let picked = pick_next_account(&pool, Some("a")).unwrap();
             assert_ne!(picked, "a");
         }
+    }
+
+    #[test]
+    fn filter_existing_accounts_drops_deleted_ids() {
+        let accounts = FakeAccountStore {
+            accounts: Mutex::new(vec![Account {
+                id: "a".into(),
+                label: "A".into(),
+                username: "a".into(),
+                notes: None,
+                full_access: true,
+                category: None,
+                region: None,
+            }]),
+            passwords: Mutex::new(HashMap::new()),
+        };
+        let filtered = filter_existing_accounts(&["a".into(), "gone".into()], &accounts);
+        assert_eq!(filtered, vec!["a".to_string()]);
     }
 }

@@ -3,7 +3,7 @@ use std::time::Duration;
 use crate::error::AppError;
 
 pub const BASE_URL: &str = "https://valorant-api.com/v1";
-const USER_AGENT: &str   = "PrivateAssistant/0.3.0";
+const USER_AGENT: &str   = "PrivateAssistant/0.4.0";
 const MAX_ATTEMPTS: u32  = 4;
 const RETRY_DELAY: Duration = Duration::from_secs(2);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);

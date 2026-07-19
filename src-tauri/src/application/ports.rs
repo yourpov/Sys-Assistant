@@ -42,7 +42,8 @@ pub trait SystemHealth: Send + Sync {
     async fn disable_rdp(&self) -> Result<(), AppError>;
     fn is_vc_redist_installed(&self) -> Result<bool, AppError>;
     fn is_core_isolation_enabled(&self) -> Result<bool, AppError>;
-    fn is_windows_11(&self) -> bool;
+    fn is_vulnerable_driver_blocklist_enabled(&self) -> Result<bool, AppError>;
+    fn is_lsa_protection_enabled(&self) -> Result<bool, AppError>;
 }
 
 #[async_trait::async_trait]

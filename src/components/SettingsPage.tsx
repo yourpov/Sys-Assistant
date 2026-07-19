@@ -14,8 +14,6 @@ import { MANUAL_ACTIONS }                          from '../constants/manualActi
 import {
   CLIPBOARD_ACK_MS,
   SETTINGS_SAVE_DEBOUNCE_MS,
-  WORKFLOW_WAIT_SEC_MAX,
-  WORKFLOW_WAIT_SEC_MIN,
 } from '../constants/timing';
 import { GITHUB_URL, HENRIK_DASHBOARD_URL }                             from '../constants/urls';
 import { SETTINGS_WINDOW_SIZE }                                         from '../constants/windowSizes';
@@ -50,28 +48,22 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const DEFAULT_SETTINGS: Settings = {
-  tempOpenValEnabled         : false,
-  tempValWaitSecs            : 10,
-  seshWaitSecs               : 10,
-  emuPath                    : null,
-  loaderPath                 : null,
-  seshPath                   : null,
-  isAlwaysOnTop              : false,
-  insertSimEnabled           : false,
-  insertSimKeybind           : null,
-  manualActionsEnabled       : ['toggleValorant', 'toggleRiotClient', 'openLoader', 'changeSeed'],
-  accountSwapPool            : [],
-  henrikApiKeys              : [],
-  seshWatchdogEnabled        : false,
-  antiTempBanEnabled         : false,
+  emuPath                      : null,
+  loaderPath                   : null,
+  isAlwaysOnTop                : false,
+  insertSimEnabled             : false,
+  insertSimKeybind             : null,
+  manualActionsEnabled         : ['toggleValorant', 'toggleRiotClient', 'openLoader', 'changeSeed'],
+  accountSwapPool              : [],
+  henrikApiKeys                : [],
   installEmuOnRiotLaunchEnabled: false,
-  autoFix55Enabled           : false,
-  toastOsNotificationsEnabled: false,
-  confirmBeforeActionsEnabled: false,
-  hideAccountUsernames       : false,
-  reduceAnimationsEnabled    : false,
-  muteAlertSoundsEnabled     : false,
-  accentColor                : null,
+  autoFix55Enabled             : false,
+  toastOsNotificationsEnabled  : false,
+  confirmBeforeActionsEnabled  : false,
+  hideAccountUsernames         : false,
+  reduceAnimationsEnabled      : false,
+  muteAlertSoundsEnabled       : false,
+  accentColor                  : null,
 };
 
 const SETTINGS_TABS: readonly SettingsTab[] = ['General', 'Automation', 'Tools', 'About'];
@@ -346,17 +338,10 @@ export function SettingsPage({ initialTab, onInitialTabConsumed, onOpenToolsMatc
             {tab === 'Automation' && (
               <>
                 <SettingsGroup
-                  groupId = "automation-hamad"
-                  title   = "Hamad Method"
-                  hint    = "Settings for this method."
-                  defaultOpen
-                >
-                  <HamadMethodSection settings = {settings} onChange = {update} />
-                </SettingsGroup>
-                <SettingsGroup
                   groupId = "automation-emu-installer"
                   title   = "Emu installer"
                   hint    = "Optional emu_installer steps for Riot launch and the 55% loader error."
+                  defaultOpen
                 >
                   <EmuInstallerSection settings = {settings} onChange = {update} />
                 </SettingsGroup>
@@ -369,7 +354,7 @@ export function SettingsPage({ initialTab, onInitialTabConsumed, onOpenToolsMatc
                 <SettingsGroup        groupId  = "automation-ingame" title = "In-game" hint = "Keybinds for in-game actions.">
                 <InsertKeybindSection settings = {settings} onChange       = {update} />
                 </SettingsGroup>
-                <SettingsGroup        groupId  = "automation-paths" title = "Files Locations" hint = "Set the path of the loader, emu and sesh files.">
+                <SettingsGroup        groupId  = "automation-paths" title = "Files Locations" hint = "Set the path of the loader and emu installer.">
                 <FileLocationsSection settings = {settings} onChange      = {update} />
                 </SettingsGroup>
               </>
@@ -597,59 +582,6 @@ function keyLabel(code: string): string {
   return code;
 }
 
-function clampWorkflowWaitSecs(raw: number): number {
-  if (!Number.isFinite(raw)) return WORKFLOW_WAIT_SEC_MIN;
-  return Math.min(WORKFLOW_WAIT_SEC_MAX, Math.max(WORKFLOW_WAIT_SEC_MIN, Math.round(raw)));
-}
-
-function SecondsStepper({
-  id,
-  value,
-  onChange,
-}: {
-  id      : string;
-  value   : number;
-  onChange: (value: number) => void;
-}) {
-  const setValue = (next: number) => onChange(clampWorkflowWaitSecs(next));
-
-  return (
-    <div className = "seconds-stepper">
-      <button
-        type      = "button"
-        className = "app-btn app-btn-secondary app-btn-icon seconds-stepper-btn"
-        disabled  = {value <= WORKFLOW_WAIT_SEC_MIN}
-        aria-label = "Decrease by 1 second"
-        onClick   = {() => setValue(value - 1)}
-      >
-        −
-      </button>
-      <input
-        id        = {id}
-        type      = "number"
-        className = "tools-input seconds-stepper-input"
-        min       = {WORKFLOW_WAIT_SEC_MIN}
-        max       = {WORKFLOW_WAIT_SEC_MAX}
-        value     = {value}
-        onChange  = {(e) => setValue(Number(e.target.value))}
-        onBlur    = {(e) => setValue(Number(e.target.value))}
-      />
-      <button
-        type      = "button"
-        className = "app-btn app-btn-secondary app-btn-icon seconds-stepper-btn"
-        disabled  = {value >= WORKFLOW_WAIT_SEC_MAX}
-        aria-label = "Increase by 1 second"
-        onClick   = {() => setValue(value + 1)}
-      >
-        +
-      </button>
-      <Tooltip content = "Seconds">
-        <span className = "seconds-stepper-suffix" aria-hidden = "true">s</span>
-      </Tooltip>
-    </div>
-  );
-}
-
 function EmuInstallerSection({ settings, onChange }: SettingsSectionProps) {
   return (
     <div className = "settings-hamad-stack" data-tauri-drag-region>
@@ -684,95 +616,8 @@ function EmuInstallerSection({ settings, onChange }: SettingsSectionProps) {
           <span>Auto-fix 55% loader error</span>
         </label>
         <p className = "settings-hint">
-          During Hamad Method or Account Swap, runs emu installer silently before the loader to avoid the 55% step.
+          During Start Process or Account Swap, runs emu installer silently before the loader to avoid the 55% step.
         </p>
-      </div>
-    </div>
-  );
-}
-
-function HamadMethodSection({ settings, onChange }: SettingsSectionProps) {
-  return (
-    <div className = "settings-hamad-stack" data-tauri-drag-region>
-
-      <div className = "settings-field" data-tauri-drag-region>
-        <label className = "settings-checkbox-row" htmlFor = "temp-open-val">
-          <input
-            id        = "temp-open-val"
-            type      = "checkbox"
-            className = "settings-toggle"
-            checked   = {settings.tempOpenValEnabled}
-            onChange  = {() => onChange({ ...settings, tempOpenValEnabled: !settings.tempOpenValEnabled })}
-          />
-          <span>Temp-open VALORANT</span>
-        </label>
-        <p className = "settings-hint">(Optional) Opens VALORANT briefly, then closes it before changing the seed.</p>
-      </div>
-
-      {settings.tempOpenValEnabled && (
-        <div className = "settings-hamad-conditional" data-tauri-drag-region>
-          <div className = "settings-timing-row" data-tauri-drag-region>
-            <label htmlFor = "temp-val-wait">Temp-open duration</label>
-            <SecondsStepper
-              id       = "temp-val-wait"
-              value    = {settings.tempValWaitSecs}
-              onChange = {(tempValWaitSecs) => onChange({ ...settings, tempValWaitSecs })}
-            />
-          </div>
-          <p className = "settings-hint">How long VALORANT stays open during the temp-open step. Default: 10s.</p>
-        </div>
-      )}
-
-      <div className = "settings-field" data-tauri-drag-region>
-        <div className = "settings-timing-row" data-tauri-drag-region>
-          <label htmlFor = "sesh-wait">Session creation delay</label>
-          <SecondsStepper
-            id       = "sesh-wait"
-            value    = {settings.seshWaitSecs}
-            onChange = {(seshWaitSecs) => onChange({ ...settings, seshWaitSecs })}
-          />
-        </div>
-        <p className = "settings-hint">
-          After VALORANT opens during Hamad Method, wait this long before starting sesh.exe. Default: 10s.
-        </p>
-      </div>
-
-      <div className = "settings-hamad-stack-divider" data-tauri-drag-region>
-        <span className = "settings-section-label settings-section-label-warning">Optional · experimental</span>
-
-        <div className = "settings-field" data-tauri-drag-region>
-          <label className = "settings-checkbox-row" htmlFor = "sesh-watchdog">
-            <input
-              id        = "sesh-watchdog"
-              type      = "checkbox"
-              className = "settings-toggle"
-              checked   = {settings.seshWatchdogEnabled}
-              onChange  = {() => onChange({ ...settings, seshWatchdogEnabled: !settings.seshWatchdogEnabled })}
-            />
-            <span>Recover session mid-game</span>
-          </label>
-          <p className = "settings-hint">
-            This re-opens sesh.exe if it closes unexpectedly.
-            (Leave off unless you are testing)
-          </p>
-        </div>
-
-        <div className = "settings-field" data-tauri-drag-region>
-          <label className = "settings-checkbox-row" htmlFor = "anti-temp-ban">
-            <input
-              id        = "anti-temp-ban"
-              type      = "checkbox"
-              className = "settings-toggle"
-              checked   = {settings.antiTempBanEnabled}
-              onChange  = {() => onChange({ ...settings, antiTempBanEnabled: !settings.antiTempBanEnabled })}
-            />
-            <span>Anti-Temp Ban</span>
-          </label>
-          <p className = "settings-hint">
-            If sesh.exe closes while you are in mid-game, automatically re-runs the Hamad Method.
-            (Leave off unless you are testing)
-          </p>
-        </div>
       </div>
     </div>
   );
@@ -837,7 +682,7 @@ function InsertKeybindSection({ settings, onChange }: SettingsSectionProps) {
   );
 }
 
-type PathKey = 'emuPath' | 'loaderPath' | 'seshPath';
+type PathKey = 'emuPath' | 'loaderPath';
 
 interface PathRow {
   key     : PathKey;
@@ -847,8 +692,7 @@ interface PathRow {
 
 const PATH_ROWS: PathRow[] = [
   { key: 'emuPath', label: 'Emu installer', filename: 'emu_installer.exe' },
-  { key: 'loaderPath', label: 'Loader', filename: 'ldr.novgk.exe' },
-  { key: 'seshPath', label: 'Session', filename: 'sesh.exe' },
+  { key: 'loaderPath', label: 'Loader', filename: 'ldr.exe' },
 ];
 
 function FileLocationsSection({ settings, onChange }: SettingsSectionProps) {

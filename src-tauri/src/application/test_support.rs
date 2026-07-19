@@ -86,10 +86,13 @@ impl SystemHealth for FakeMachine {
         Ok(true)
     }
     fn is_core_isolation_enabled(&self) -> Result<bool, AppError> {
-        Ok(true)
+        Ok(false)
     }
-    fn is_windows_11(&self) -> bool {
-        false
+    fn is_vulnerable_driver_blocklist_enabled(&self) -> Result<bool, AppError> {
+        Ok(false)
+    }
+    fn is_lsa_protection_enabled(&self) -> Result<bool, AppError> {
+        Ok(false)
     }
 }
 

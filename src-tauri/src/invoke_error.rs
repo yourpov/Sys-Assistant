@@ -242,6 +242,15 @@ fn riot_client_other_invoke(message: &str, log: String) -> InvokeErrorDto {
         );
     }
 
+    if lower.contains("never finished signing in") || lower.contains("sign in fresh") {
+        return invoke_err_msg(
+            "riot_client_not_signed_in",
+            "Your Riot sign-in didn't finish",
+            "Wait for the Riot Client home screen, or forget the saved session and sign in fresh for that account, then try again.",
+            log,
+        );
+    }
+
     invoke_err_msg(
         "riot_client_failed",
         "Your Riot Client step couldn't finish",

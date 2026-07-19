@@ -81,8 +81,6 @@ pub fn run() {
                 settings.insert_sim_keybind.as_deref(),
             );
             app.manage(state);
-            tauri::async_runtime::spawn(application::sesh_watchdog::run(app.handle().clone()));
-            tauri::async_runtime::spawn(application::anti_temp_ban_watchdog::run(app.handle().clone()));
             tauri::async_runtime::spawn(application::riot_watchdog::run(app.handle().clone()));
 
             #[cfg(any(windows, target_os = "linux"))]

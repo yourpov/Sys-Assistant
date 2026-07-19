@@ -13,8 +13,8 @@ const TERMINAL_SERVER_KEY: &str    = "SYSTEM\\CurrentControlSet\\Control\\Termin
 const VC_RUNTIME_KEY: &str         = "SOFTWARE\\Microsoft\\VisualStudio\\14.0\\VC\\Runtimes\\x64";
 const ENVIRONMENT_KEY: &str        = "SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment";
 const CORE_ISOLATION_KEY: &str     = "SYSTEM\\CurrentControlSet\\Control\\DeviceGuard\\Scenarios\\HypervisorEnforcedCodeIntegrity";
-const WINDOWS_VERSION_KEY: &str    = "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion";
-const WINDOWS_11_BUILD_NUMBER: u32 = 22000;
+const DRIVER_BLOCKLIST_KEY: &str   = "SYSTEM\\CurrentControlSet\\Control\\CI\\Config";
+const LSA_KEY: &str                = "SYSTEM\\CurrentControlSet\\Control\\Lsa";
 
 pub struct WindowsMachineConfig;
 
@@ -51,13 +51,20 @@ impl SystemHealth for WindowsMachineConfig {
         Ok(enabled != 0)
     }
 
-    fn is_windows_11(&self) -> bool {
-        RegKey::predef(HKEY_LOCAL_MACHINE)
-            .open_subkey(WINDOWS_VERSION_KEY)
-            .and_then(|key| key.get_value::<String, _>("CurrentBuildNumber"))
-            .ok()
-            .and_then(|build| build.parse::<u32>().ok())
-            .is_some_and(|build| build >= WINDOWS_11_BUILD_NUMBER)
+    fn is_vulnerable_driver_blocklist_enabled(&self) -> Result<bool, AppError> {
+        let enabled = RegKey::predef(HKEY_LOCAL_MACHINE)
+            .open_subkey(DRIVER_BLOCKLIST_KEY)
+            .and_then(|key| key.get_value::<u32, _>("VulnerableDriverBlocklistEnable"))
+            .unwrap_or(0);
+        Ok(enabled != 0)
+    }
+
+    fn is_lsa_protection_enabled(&self) -> Result<bool, AppError> {
+        let run_as_ppl = RegKey::predef(HKEY_LOCAL_MACHINE)
+            .open_subkey(LSA_KEY)
+            .and_then(|key| key.get_value::<u32, _>("RunAsPPL"))
+            .unwrap_or(0);
+        Ok(run_as_ppl != 0)
     }
 }
 

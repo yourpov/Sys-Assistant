@@ -30,16 +30,11 @@ export const MANUAL_ACTIONS: ManualActionDef[] = [
   { 
     action : 'openLoader',
     label  : 'Open the loader',
-    hint   : 'Runs ldr.novgk.exe'
+    hint   : 'Runs ldr.exe'
   },
   { 
     action : 'restartValorant',
     label  : 'Restart VALORANT',
     hint   : "Closes VALORANT if it's running, then opens it again"
-  },
-  { 
-    action : 'createSession',
-    label  : 'Create session',
-    hint   : 'Runs sesh.exe, replacing any session already running'
   },
 ];

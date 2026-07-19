@@ -7,35 +7,28 @@ export interface LogLine {
 }
 
 export interface Settings {
-  tempOpenValEnabled          : boolean;
-  tempValWaitSecs             : number;
-  seshWaitSecs                : number;
-  emuPath                     : string | null;
-  loaderPath                  : string | null;
-  seshPath                    : string | null;
-  isAlwaysOnTop               : boolean;
-  insertSimEnabled            : boolean;
-  insertSimKeybind            : string | null;
-  manualActionsEnabled        : ManualAction[];
-  accountSwapPool             : string[];
-  henrikApiKeys               : string[];
-  seshWatchdogEnabled         : boolean;
-  antiTempBanEnabled          : boolean;
+  emuPath                       : string | null;
+  loaderPath                    : string | null;
+  isAlwaysOnTop                 : boolean;
+  insertSimEnabled              : boolean;
+  insertSimKeybind              : string | null;
+  manualActionsEnabled          : ManualAction[];
+  accountSwapPool               : string[];
+  henrikApiKeys                 : string[];
   installEmuOnRiotLaunchEnabled : boolean;
   autoFix55Enabled              : boolean;
-  toastOsNotificationsEnabled : boolean;
-  confirmBeforeActionsEnabled : boolean;
-  hideAccountUsernames        : boolean;
-  reduceAnimationsEnabled     : boolean;
-  muteAlertSoundsEnabled      : boolean;
-  accentColor                 : string | null;
+  toastOsNotificationsEnabled   : boolean;
+  confirmBeforeActionsEnabled   : boolean;
+  hideAccountUsernames          : boolean;
+  reduceAnimationsEnabled       : boolean;
+  muteAlertSoundsEnabled        : boolean;
+  accentColor                   : string | null;
 }
 
 export interface IssueReport {
-  riotRunning          : boolean;
-  staySignedIn         : boolean;
-  coreIsolationEnabled : boolean;
-  missingFiles         : string[];
+  riotRunning  : boolean;
+  staySignedIn : boolean;
+  missingFiles : string[];
 }
 
 export type CheckOutcome = { type: 'needsReboot' } | { type: 'report'; report: IssueReport };
@@ -48,8 +41,7 @@ export type ManualAction =
   | 'openLoader'
   | 'changeSeed'
   | 'openEmuInstaller'
-  | 'restartValorant'
-  | 'createSession';
+  | 'restartValorant';
 
 export type Page = 'automate' | 'accounts' | 'configs' | 'settings' | 'tools';
 

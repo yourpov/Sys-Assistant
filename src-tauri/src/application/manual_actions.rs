@@ -11,7 +11,6 @@ pub async fn run(action: ManualAction, settings: &Settings, ports: &Ports, stop:
         ManualAction::ChangeSeed       => run_workflow::change_seed(ports, stop).await,
         ManualAction::OpenEmuInstaller => open_emu_installer(ports, settings, stop).await,
         ManualAction::RestartValorant  => restart_valorant(ports, settings, stop).await,
-        ManualAction::CreateSession    => run_workflow::start_session(ports, settings, stop, false).await,
     }
 }
 

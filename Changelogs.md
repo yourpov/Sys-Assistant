@@ -1,3 +1,18 @@
+# v0.4.0
+
+July 19, 2026
+
+## Changed
+
+- start process: previously named "Hamad Method". runs the emu installer, then ldr.exe, then valorant
+- loader: looks for ldr.exe instead of ldr.novgk.exe
+- check for issues: warns if core isolation, the vulnerable driver blocklist, or local security authority protection is on (recommended off), and requires both vgc and vgk to be running
+
+## Removed
+
+- sesh.exe: create session, session path, session delay, session recovery, and anti-temp ban are gone
+- temp-open valorant: the optional open-and-close step before starting is gone
+
 # v0.3.0
 
 July 12, 2026
