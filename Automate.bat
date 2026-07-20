@@ -14,7 +14,7 @@
 
 @echo off
 chcp 65001 >nul
-title Sysinfo.gg ^| Private Automation Script
+title Sysinfo.gg ^| Private Automation Script ^| THIS IS OUTDATED. USE THE APP INSTEAD (RELEASE PAGE)
 color 4
 
 

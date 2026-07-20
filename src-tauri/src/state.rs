@@ -1,5 +1,4 @@
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Manager};
 
@@ -17,14 +16,6 @@ use crate::infrastructure::{
 };
 use crate::infrastructure::saved_players_store::SavedPlayersStore;
 
-const POST_ACCOUNT_RIOT_FLOW_GRACE: Duration = Duration::from_secs(20);
-
-#[derive(Debug, Default, Clone)]
-pub struct RiotWatchdogPause {
-    pub suppressed         : bool,
-    pub ignore_edges_until : Option<Instant>,
-}
-
 pub struct AppState {
     pub ports                  : Ports,
     pub accounts               : Arc<dyn AccountStore>,
@@ -33,7 +24,6 @@ pub struct AppState {
     pub sessions               : Arc<dyn SessionSnapshotStore>,
     pub app_log                : Arc<AppLogStore>,
     pub active_stop            : Mutex<Option<StopToken>>,
-    pub riot_watchdog_pause    : Mutex<RiotWatchdogPause>,
     pub settings               : Mutex<Settings>,
     pub registered_shortcut    : Mutex<Option<String>>,
     pub account_swap_last_used : Mutex<Option<String>>,
@@ -85,7 +75,6 @@ impl AppState {
             sessions,
             app_log,
             active_stop            : Mutex::new(None),
-            riot_watchdog_pause    : Mutex::new(RiotWatchdogPause::default()),
             settings               : Mutex::new(settings),
             registered_shortcut    : Mutex::new(None),
             account_swap_last_used : Mutex::new(None),
@@ -105,25 +94,6 @@ impl AppState {
         self.settings_store.save(&settings)?;
         *lock_or_recover(&self.settings) = settings;
         Ok(())
-    }
-
-    pub fn begin_account_riot_flow(&self) {
-        let mut pause = lock_or_recover(&self.riot_watchdog_pause);
-        pause.suppressed = true;
-    }
-
-    pub fn end_account_riot_flow(&self) {
-        let mut pause = lock_or_recover(&self.riot_watchdog_pause);
-        pause.suppressed = false;
-        pause.ignore_edges_until = Some(Instant::now() + POST_ACCOUNT_RIOT_FLOW_GRACE);
-    }
-
-    pub fn riot_watchdog_pause_snapshot(&self) -> RiotWatchdogPause {
-        let mut pause = lock_or_recover(&self.riot_watchdog_pause);
-        if pause.ignore_edges_until.is_some_and(|until| Instant::now() >= until) {
-            pause.ignore_edges_until = None;
-        }
-        pause.clone()
     }
 
     pub fn try_claim_stop_token(&self) -> Option<StopToken> {

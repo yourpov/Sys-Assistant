@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
+
 use crate::domain::Account;
 use crate::error::AppError;
 
@@ -8,6 +10,38 @@ pub struct ParsedAccountLine {
     pub label    : String,
     pub username : String,
     pub password : String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedAccount {
+    pub label       : String,
+    pub username    : String,
+    pub password    : String,
+    pub full_access : bool,
+    pub category    : Option<String>,
+    pub region      : Option<String>,
+    pub notes       : Option<String>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FullAccountRecord {
+    username           : String,
+    password           : String,
+    #[serde(default)]
+    label              : Option<String>,
+    #[serde(default = "default_true")]
+    full_access        : bool,
+    #[serde(default)]
+    category           : Option<String>,
+    #[serde(default)]
+    region             : Option<String>,
+    #[serde(default)]
+    notes              : Option<String>,
 }
 
 fn password_needs_quoting(password: &str) -> bool {
@@ -65,6 +99,26 @@ pub fn build_export_text(accounts: &[Account], passwords: &[(String, String)]) -
     if !text.is_empty() {
         text.push('\n');
     }
+    text
+}
+
+pub fn build_full_export_text(accounts: &[Account], passwords: &[(String, String)]) -> String {
+    let password_by_id: HashMap<&str, &str> = passwords.iter().map(|(id, password)| (id.as_str(), password.as_str())).collect();
+    let records: Vec<FullAccountRecord> = accounts
+        .iter()
+        .map(|account| FullAccountRecord {
+            username    : account.username.clone(),
+            password    : password_by_id.get(account.id.as_str()).copied().unwrap_or("").to_string(),
+            label       : Some(account.label.clone()),
+            full_access : account.full_access,
+            category    : account.category.clone(),
+            region      : account.region.clone(),
+            notes       : account.notes.clone(),
+        })
+        .collect();
+
+    let mut text = serde_json::to_string_pretty(&records).unwrap_or_else(|_| "[]".to_string());
+    text.push('\n');
     text
 }
 
@@ -158,6 +212,64 @@ pub fn parse_import_text(raw: &str) -> (Vec<ParsedAccountLine>, Vec<String>) {
             Ok(Some(entry)) => parsed.push(entry),
             Err(error) => errors.push(format!("line {line_no}: {}", error)),
         }
+    }
+
+    (parsed, errors)
+}
+
+pub fn parse_import(raw: &str) -> (Vec<ParsedAccount>, Vec<String>) {
+    if raw.trim_start().starts_with('[') {
+        return parse_full_json(raw);
+    }
+
+    let (lines, errors) = parse_import_text(raw);
+    let parsed = lines
+        .into_iter()
+        .map(|line| ParsedAccount {
+            label       : line.label,
+            username    : line.username,
+            password    : line.password,
+            full_access : true,
+            category    : None,
+            region      : None,
+            notes       : None,
+        })
+        .collect();
+    (parsed, errors)
+}
+
+fn blank_to_none(value: Option<String>) -> Option<String> {
+    value.filter(|v| !v.trim().is_empty())
+}
+
+fn parse_full_json(raw: &str) -> (Vec<ParsedAccount>, Vec<String>) {
+    let records: Vec<FullAccountRecord> = match serde_json::from_str(raw) {
+        Ok(records) => records,
+        Err(error) => return (Vec::new(), vec![format!("couldn't read the full-format export file: {error}")]),
+    };
+
+    let mut parsed = Vec::new();
+    let mut errors = Vec::new();
+    for (index, record) in records.into_iter().enumerate() {
+        let entry_no = index + 1;
+        if record.username.trim().is_empty() {
+            errors.push(format!("entry {entry_no}: username is empty"));
+            continue;
+        }
+        if record.password.is_empty() {
+            errors.push(format!("entry {entry_no}: password is empty"));
+            continue;
+        }
+        let label = blank_to_none(record.label).unwrap_or_else(|| record.username.clone());
+        parsed.push(ParsedAccount {
+            label,
+            username    : record.username,
+            password    : record.password,
+            full_access : record.full_access,
+            category    : blank_to_none(record.category),
+            region      : blank_to_none(record.region),
+            notes       : blank_to_none(record.notes),
+        });
     }
 
     (parsed, errors)
@@ -309,5 +421,43 @@ ShadowFox:Crimson!482"#;
         assert_eq!(entries[0].password, "HorcusBestChamber");
         assert_eq!(entries[1].password, "BlueSky#918:Pixel#1842");
         assert_eq!(entries[2].password, "Crimson!482");
+    }
+
+    #[test]
+    fn full_export_roundtrips_every_field() {
+        let accounts = vec![Account {
+            id          : "1".into(),
+            label       : "Main#NA1".into(),
+            username    : "mainuser".into(),
+            notes       : Some("smurf, careful".into()),
+            full_access : false,
+            category    : Some("Ranked".into()),
+            region      : Some("NA".into()),
+        }];
+        let passwords = vec![("1".into(), "Secret:With#Colon".into())];
+
+        let text = build_full_export_text(&accounts, &passwords);
+        let (entries, errors) = parse_import(&text);
+
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(entries.len(), 1);
+        let entry = &entries[0];
+        assert_eq!(entry.username, "mainuser");
+        assert_eq!(entry.password, "Secret:With#Colon");
+        assert_eq!(entry.label, "Main#NA1");
+        assert!(!entry.full_access);
+        assert_eq!(entry.category.as_deref(), Some("Ranked"));
+        assert_eq!(entry.region.as_deref(), Some("NA"));
+        assert_eq!(entry.notes.as_deref(), Some("smurf, careful"));
+    }
+
+    #[test]
+    fn parse_import_auto_detects_line_format_with_defaults() {
+        let (entries, errors) = parse_import("mainuser:mypass | Main#NA1");
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(entries.len(), 1);
+        assert!(entries[0].full_access);
+        assert_eq!(entries[0].category, None);
+        assert_eq!(entries[0].notes, None);
     }
 }

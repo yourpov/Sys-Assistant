@@ -5,8 +5,11 @@ July 19, 2026
 ## Changed
 
 - start process: previously named "Hamad Method". runs the emu installer, then ldr.exe, then valorant
-- loader: looks for ldr.exe instead of ldr.novgk.exe
-- check for issues: warns if core isolation, the vulnerable driver blocklist, or local security authority protection is on (recommended off), and requires both vgc and vgk to be running
+- loader: looks for ldr.exe or of ldr.novgk.exe
+- file locations: added TraceX
+- group accounts: switch the accounts list between grouping by category, access (FA/NFA), or region
+- bulk edit: select accounts and change their notes, category, region, or access all in one go
+- search notes: the accounts search now also matches text in notes, so typing "fresh" finds every account noted as fresh- check for issues: warns if core isolation, the vulnerable driver blocklist, or local security authority protection is on, and requires vgc to be running and vgk to be off
 
 ## Removed
 

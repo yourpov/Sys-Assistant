@@ -45,11 +45,6 @@ impl ProcessLauncher for FakeLauncher {
         self.0.launched.lock().unwrap().push(path.to_path_buf());
         Ok(())
     }
-
-    async fn launch_silent_and_confirm(&self, path: &Path, _sink: &dyn EventSink) -> Result<(), AppError> {
-        self.0.launched.lock().unwrap().push(path.to_path_buf());
-        Ok(())
-    }
 }
 
 struct FakeKillTrackingProcesses {
@@ -104,17 +99,18 @@ impl EmuEnvironment for FakeMachine {
     async fn set_emu_seed(&self, _seed: u32) -> Result<(), AppError> {
         Ok(())
     }
-    async fn flush_dns(&self) -> Result<(), AppError> {
-        Ok(())
-    }
 }
 
 struct FakeServices;
 #[async_trait::async_trait]
 impl ServiceControl for FakeServices {
     async fn start(&self, _service: &str, _sink: &dyn EventSink) {}
-    async fn query(&self, _service: &str) -> ServiceState {
-        ServiceState::Running
+    async fn query(&self, service: &str) -> ServiceState {
+        if service == "vgk" {
+            ServiceState::Stopped
+        } else {
+            ServiceState::Running
+        }
     }
 }
 

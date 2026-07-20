@@ -1,13 +1,8 @@
-use std::os::windows::process::CommandExt;
-use std::process::Command;
-
 use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_SET_VALUE};
 use winreg::RegKey;
 
 use crate::application::ports::{EmuEnvironment, SystemHealth};
 use crate::error::AppError;
-
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 const TERMINAL_SERVER_KEY: &str    = "SYSTEM\\CurrentControlSet\\Control\\Terminal Server";
 const VC_RUNTIME_KEY: &str         = "SOFTWARE\\Microsoft\\VisualStudio\\14.0\\VC\\Runtimes\\x64";
@@ -79,14 +74,5 @@ impl EmuEnvironment for WindowsMachineConfig {
             .open_subkey_with_flags(ENVIRONMENT_KEY, KEY_SET_VALUE)
             .map_err(|e| AppError::Registry(e.to_string()))?;
         key.set_value("EMU_SEED", &seed.to_string()).map_err(|e| AppError::Registry(e.to_string()))
-    }
-
-    async fn flush_dns(&self) -> Result<(), AppError> {
-        tokio::task::spawn_blocking(|| {
-            Command::new("ipconfig").creation_flags(CREATE_NO_WINDOW).arg("/flushdns").output().map(|_| ())
-        })
-        .await
-        .map_err(|e| AppError::Service(e.to_string()))?
-        .map_err(|e| AppError::Service(e.to_string()))
     }
 }

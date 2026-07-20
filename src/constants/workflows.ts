@@ -20,7 +20,7 @@ export const AUTOMATION_METHODS: AutomationMethod[] = [
     id     : 'start-process',
     action : 'start',
     label  : 'Start Process',
-    hint   : 'Runs emu installer, then ldr.exe, then VALORANT',
+    hint   : 'Opens Riot, runs TraceX and waits for VALORANT',
   },
   {
     id     : 'account-swap',

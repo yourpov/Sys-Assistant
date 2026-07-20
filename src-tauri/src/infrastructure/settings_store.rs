@@ -10,14 +10,14 @@ use crate::error::AppError;
 struct StoredSettings {
     emu_path                           : Option<String>,
     loader_path                        : Option<String>,
+    tracex_path                        : Option<String>,
     is_always_on_top                   : Option<bool>,
     insert_sim_enabled                 : Option<bool>,
     insert_sim_keybind                 : Option<String>,
     manual_actions_enabled             : Option<Vec<ManualActionDto>>,
     account_swap_pool                  : Option<Vec<String>>,
     henrik_api_keys                    : Option<Vec<String>>,
-    install_emu_on_riot_launch_enabled : Option<bool>,
-    auto_fix_55_enabled                    : Option<bool>,
+    auto_run_loader_enabled            : Option<bool>,
     toast_os_notifications_enabled     : Option<bool>,
     confirm_before_actions_enabled     : Option<bool>,
     hide_account_usernames             : Option<bool>,
@@ -42,6 +42,7 @@ impl SettingsStore {
         Settings {
             emu_path: stored.emu_path.map(PathBuf::from),
             loader_path: stored.loader_path.map(PathBuf::from),
+            tracex_path: stored.tracex_path.map(PathBuf::from),
             is_always_on_top: stored.is_always_on_top.unwrap_or(defaults.is_always_on_top),
             insert_sim_enabled: stored.insert_sim_enabled.unwrap_or(defaults.insert_sim_enabled),
             insert_sim_keybind: stored.insert_sim_keybind.or(defaults.insert_sim_keybind),
@@ -51,10 +52,7 @@ impl SettingsStore {
                 .unwrap_or(defaults.manual_actions_enabled),
             account_swap_pool: stored.account_swap_pool.unwrap_or(defaults.account_swap_pool),
             henrik_api_keys: stored.henrik_api_keys.unwrap_or(defaults.henrik_api_keys),
-            install_emu_on_riot_launch_enabled: stored
-                .install_emu_on_riot_launch_enabled
-                .unwrap_or(defaults.install_emu_on_riot_launch_enabled),
-            auto_fix_55_enabled: stored.auto_fix_55_enabled.unwrap_or(defaults.auto_fix_55_enabled),
+            auto_run_loader_enabled: stored.auto_run_loader_enabled.unwrap_or(defaults.auto_run_loader_enabled),
             toast_os_notifications_enabled: stored.toast_os_notifications_enabled.unwrap_or(defaults.toast_os_notifications_enabled),
             confirm_before_actions_enabled: stored
                 .confirm_before_actions_enabled
@@ -75,14 +73,14 @@ impl SettingsStore {
         let stored = StoredSettings {
             emu_path: settings.emu_path.as_ref().map(|p| p.display().to_string()),
             loader_path: settings.loader_path.as_ref().map(|p| p.display().to_string()),
+            tracex_path: settings.tracex_path.as_ref().map(|p| p.display().to_string()),
             is_always_on_top: Some(settings.is_always_on_top),
             insert_sim_enabled: Some(settings.insert_sim_enabled),
             insert_sim_keybind: settings.insert_sim_keybind.clone(),
             manual_actions_enabled: Some(settings.manual_actions_enabled.iter().map(|a| (*a).into()).collect()),
             account_swap_pool: Some(settings.account_swap_pool.clone()),
             henrik_api_keys: Some(settings.henrik_api_keys.clone()),
-            install_emu_on_riot_launch_enabled: Some(settings.install_emu_on_riot_launch_enabled),
-            auto_fix_55_enabled: Some(settings.auto_fix_55_enabled),
+            auto_run_loader_enabled: Some(settings.auto_run_loader_enabled),
             toast_os_notifications_enabled: Some(settings.toast_os_notifications_enabled),
             confirm_before_actions_enabled: Some(settings.confirm_before_actions_enabled),
             hide_account_usernames: Some(settings.hide_account_usernames),

@@ -81,7 +81,7 @@ const SENT_OVER_INTERNET_ITEMS: ReactNode[] = [
     <TransLink href = {GITHUB_URL}>GitHub</TransLink>: changelog text and update manifest when you check for updates or open What&apos;s new.
   </>,
   <>
-    Microsoft (<TransLink href={VC_REDIST_URL}>aka.ms</TransLink>): VC++ redistributable download if missing during Auto-fix 55% loader error.
+    Microsoft (<TransLink href={VC_REDIST_URL}>aka.ms</TransLink>): VC++ redistributable download if missing during Check for issues.
   </>,
   <>
     Lanyard (<TransLink href={LANYARD_API_URL}>api.lanyard.rest</TransLink>): public Discord presence for the splash screen credit line.
@@ -268,13 +268,11 @@ function transparencyBlocks(onOpenToolsMatch?: () => void): TransparencyBlock[] 
   {
     title: 'Programs controlled or monitored',
     items: [
-      'Launches, monitors, or closes: RiotClientServices, VALORANT, ldr.exe, and emu_installer.exe.',
-      'Windows services vgc and vgk: queried and can be started for Vanguard-related steps.',
+      'Launches, monitors, or closes: RiotClientServices, VALORANT, tracex.exe, ldr.exe, and emu_installer.exe.',
+      'Windows services vgc and vgk: queried during Check for issues. vgc can be started. vgk must be off.',
       'Riot login window: UI automation fills username and password and toggles stay signed in during Account Swap.',
       'Global hotkey (optional): simulates your configured key plus Insert for in-game actions.',
-      'Install emu on Riot launch (optional): every 3s, runs emu_installer silently when you open the Riot Client yourself. Skipped during account login and Account Swap.',
       'shutdown /r /t 0: restarts your PC if you confirm after Remote Desktop is disabled.',
-      'ipconfig /flushdns: runs during the Auto-fix 55% loader error flow.',
     ],
   },
   {

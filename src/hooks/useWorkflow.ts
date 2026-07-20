@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { onWorkflowLog } from '../api/events';
+import { getSettings } from '../api/settings';
 import {
   cancelAction,
   checkForIssues,
@@ -8,6 +9,7 @@ import {
   restartComputer,
   runAccountSwap,
   runAction,
+  runLoader,
   runManualAction,
 } from '../api/workflow';
 import type { LogLine, ManualAction, WorkflowAction } from '../types';
@@ -19,6 +21,12 @@ import { toast, type NotificationContent } from './useToastStore';
 const REBOOT_NOTICE: NotificationContent = {
   title: 'Your computer needs to restart',
   body: "Remote Desktop was on, which breaks the optimizer, so it's been turned off. Restart now to finish, or restart later yourself before running this again.",
+};
+
+const USE_PRIVATE_NOTICE: NotificationContent = {
+  title: 'Use Private?',
+  body: 'Choose Yes to run the loader now, or No to skip it and leave VALORANT running on its own.',
+  icon: 'info',
 };
 
 export function useWorkflow() {
@@ -101,6 +109,28 @@ export function useWorkflow() {
     [beginWork, runTracked],
   );
 
+  const runPrivatePhase = useCallback(async () => {
+    if (abortRef.current) return;
+    const settings = await getSettings();
+    if (abortRef.current) return;
+    if (settings.autoRunLoaderEnabled) {
+      await runLoader();
+      return;
+    }
+    const accepted = await toast.confirm(USE_PRIVATE_NOTICE, { confirmLabel: 'Yes', cancelLabel: 'No', icon: 'info' });
+    if (abortRef.current || !accepted) return;
+    await runLoader();
+  }, []);
+
+  const startProcess = useCallback(() => {
+    beginWork();
+    return runTracked(async () => {
+      if (abortRef.current) return;
+      await runAction('start');
+      await runPrivatePhase();
+    });
+  }, [beginWork, runTracked, runPrivatePhase]);
+
   const startConfirmed = useCallback(
     (action: WorkflowAction, notice: NotificationContent, confirmLabel: string) => {
       beginWork();
@@ -154,9 +184,13 @@ export function useWorkflow() {
   const swap = useCallback(
     (accountIds: string[]) => {
       if (abortRef.current) return Promise.resolve();
-      return runTracked(() => runAccountSwap(accountIds));
+      return runTracked(async () => {
+        if (abortRef.current) return;
+        await runAccountSwap(accountIds);
+        await runPrivatePhase();
+      });
     },
-    [runTracked],
+    [runTracked, runPrivatePhase],
   );
 
   const clearLogs = useCallback(() => setLines([]), []);
@@ -167,6 +201,7 @@ export function useWorkflow() {
     beginWork,
     isAborted,
     start,
+    startProcess,
     startConfirmed,
     check,
     cancel,

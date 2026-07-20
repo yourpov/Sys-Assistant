@@ -6,7 +6,7 @@ Tauri desktop app for the Sys-Info Valorant workflow. Replaces the old `.bat` au
 
 ## what it does
 
-- **Automate**: Start Process — runs emu installer, then `ldr.exe`, then VALORANT. Check for issues and close-all live on the same page.
+- **Automate**: Start Process runs emu installer, then `ldr.exe`, then VALORANT. Check for issues and close-all live on the same page.
 - **Account swap**: signs into the next saved account in rotation, then runs Start Process.
 - **Manual options**: run any single step alone. Pick which ones show up in Settings.
 - **Accounts**: save Riot logins, import/export `.txt`, session snapshots, login / forget session.

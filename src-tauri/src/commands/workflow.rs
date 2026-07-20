@@ -15,7 +15,6 @@ impl Drop for WorkflowStopGuard<'_> {
 
 use crate::application::ports::{LogLevel, Ports};
 use crate::application::run_workflow::{self, StopToken};
-use crate::application::riot_watchdog::AccountRiotFlowGuard;
 use crate::application::{account_swap, check_issues, manual_actions};
 use crate::commands::keybind;
 use crate::domain::Settings;
@@ -55,8 +54,7 @@ pub async fn run_manual_action(state: State<'_, AppState>, action: ManualActionD
 
 #[tauri::command]
 pub async fn run_account_swap(state: State<'_, AppState>, account_ids: Vec<String>) -> Result<(), InvokeErrorDto> {
-    let _flow_guard = AccountRiotFlowGuard::new(&state);
-    let guard       = try_take_stop_token(&state)?;
+    let guard    = try_take_stop_token(&state)?;
     let settings    = state.current_settings();
     let last_used = lock_or_recover(&state.account_swap_last_used).clone();
     let result = account_swap::run(
@@ -80,6 +78,16 @@ pub async fn run_account_swap(state: State<'_, AppState>, account_ids: Vec<Strin
             Err(invoke_err(e))
         }
     }
+}
+
+#[tauri::command]
+pub async fn run_loader(state: State<'_, AppState>) -> Result<(), InvokeErrorDto> {
+    let guard    = try_take_stop_token(&state)?;
+    let settings = state.current_settings();
+    run_workflow::run_loader(&state.ports, &settings, &guard.token)
+        .await
+        .inspect_err(|e| log_failure(&state.ports, e))
+        .map_err(invoke_err)
 }
 
 #[tauri::command]
@@ -136,8 +144,9 @@ pub async fn check_for_issues(state: State<'_, AppState>) -> Result<CheckOutcome
 
 #[tauri::command]
 pub async fn fix_issues(state: State<'_, AppState>, report: IssueReportDto) -> Result<(), InvokeErrorDto> {
-    let guard = try_take_stop_token(&state)?;
-    check_issues::fix(&report.into(), &state.ports, &guard.token).await
+    let guard    = try_take_stop_token(&state)?;
+    let settings = state.current_settings();
+    check_issues::fix(&report.into(), &settings, &state.ports, &guard.token).await
         .inspect_err(|e| {
             if !matches!(e, AppError::Cancelled) {
                 log_failure(&state.ports, e);

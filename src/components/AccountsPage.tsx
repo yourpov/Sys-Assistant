@@ -11,14 +11,16 @@ import { cancelAction }                                                         
 
 import { toast }                                                                                                                 from '../hooks/useToastStore';
 import type { Account, LogLine, Settings }                                                                                       from '../types';
+import type { AccountExportFormat }                                                                                              from '../utils/accountTxt';
 import { accountAvatarInitial, displayUsername }                                                                                 from '../utils/accountDisplay';
-import { groupAccountsByCategory, distinctCategories, UNCATEGORIZED_KEY }                                                        from '../utils/accountCategories';
+import { groupAccounts, groupAccountsByCategory, distinctCategories, UNCATEGORIZED_KEY, type AccountGroupMode } from '../utils/accountCategories';
 import { readPersistedRecord, writePersistedRecord }                                                                             from '../utils/persistedRecord';
 import { CLIPBOARD_ACK_MS }                                                                                                      from '../constants/timing';
 import { confirmIfEnabled }                                                                                                      from '../utils/confirmGate';
 import { logSilentFailure }                                                                                                      from '../utils/silentError';
 import { parseInvokeError, toastFromError, type UserFacingError }                                                                from '../utils/userError';
 import { BASE_WINDOW_SIZE, tweenWindowSize }                                                                                     from '../utils/windowSize';
+import { AccountBulkEditDialog, type BulkEditChanges }                                                                          from './AccountBulkEditDialog';
 import { AccountCategorySection }                                                                                                from './AccountCategorySection';
 import { AccountFormDialog }                                                                                                     from './AccountFormDialog';
 import { LogPanel }                                                                                                              from './LogPanel';
@@ -38,6 +40,22 @@ const DRAG_SELECT_THRESHOLD_PX = 4;
 const DRAG_SCROLL_EDGE_PX      = 44;
 const DRAG_SCROLL_SPEED_PX     = 14;
 const ACCOUNTS_CATEGORY_STATE_KEY = 'accounts-category-state';
+const ACCOUNTS_GROUP_MODE_KEY     = 'accounts-group-mode';
+
+const GROUP_MODE_OPTIONS: { mode: AccountGroupMode; label: string }[] = [
+  { mode: 'category', label: 'Category' },
+  { mode: 'access',   label: 'Access' },
+  { mode: 'region',   label: 'Region' },
+];
+
+function readGroupMode(): AccountGroupMode {
+  try {
+    const stored = sessionStorage.getItem(ACCOUNTS_GROUP_MODE_KEY);
+    if (stored === 'category' || stored === 'access' || stored === 'region') return stored;
+  } catch {
+  }
+  return 'category';
+}
 
 interface DragSelectState {
   active     : boolean;
@@ -68,6 +86,8 @@ export function AccountsPage({ onLookup }: Props) {
   const [isDragSelecting, setIsDragSelecting] = useState(false);
   const [hideUsernames, setHideUsernames]     = useState(false);
   const [categoryOpenState, setCategoryOpenState] = useState<Record<string, boolean>>({});
+  const [groupMode, setGroupMode]             = useState<AccountGroupMode>(() => readGroupMode());
+  const [bulkEditing, setBulkEditing]         = useState(false);
   const settingsRef                           = useRef<Settings | null>(null);
 
   const listRef                               = useRef<HTMLDivElement>(null);
@@ -389,6 +409,68 @@ export function AccountsPage({ onLookup }: Props) {
     setBulkWorking(false);
   };
 
+  const applyBulkEdit = async (changes: BulkEditChanges) => {
+    const targets = accounts.filter((account) => selectedIds.has(account.id));
+    if (targets.length === 0) return;
+
+    const hasChange =
+      'fullAccess' in changes || 'region' in changes || 'category' in changes || 'notes' in changes;
+    if (!hasChange) {
+      setBulkEditing(false);
+      return;
+    }
+
+    setBulkWorking(true);
+    const updatedIds: string[] = [];
+    const failures: string[]   = [];
+
+    for (const account of targets) {
+      try {
+        if ('fullAccess' in changes) await setAccountFullAccess(account.id, changes.fullAccess as boolean);
+        if ('region' in changes)     await setAccountRegion(account.id, changes.region ?? null);
+        if ('category' in changes)   await setAccountCategory(account.id, changes.category ?? null);
+        if ('notes' in changes)      await setAccountNotes(account.id, changes.notes ?? null);
+        updatedIds.push(account.id);
+      } catch (e) {
+        failures.push(`${account.label}: ${e}`);
+      }
+    }
+
+    if (updatedIds.length > 0) {
+      const updated = new Set(updatedIds);
+      setAccounts((prev) =>
+        prev.map((account) =>
+          updated.has(account.id)
+            ? {
+                ...account,
+                ...('fullAccess' in changes ? { fullAccess: changes.fullAccess as boolean } : {}),
+                ...('region' in changes ? { region: changes.region ?? null } : {}),
+                ...('category' in changes ? { category: changes.category ?? null } : {}),
+                ...('notes' in changes ? { notes: changes.notes ?? null } : {}),
+              }
+            : account,
+        ),
+      );
+      log('ok', `updated ${updatedIds.length} account${updatedIds.length === 1 ? '' : 's'}`);
+    }
+
+    if (failures.length > 0) {
+      log('error', failures.join('\n'));
+      toast.error({
+        title: "Couldn't update every account",
+        body : failures.slice(0, 3).join('\n'),
+      });
+    } else if (updatedIds.length > 0) {
+      toast.success({
+        title: 'Accounts updated',
+        body : `Applied changes to ${updatedIds.length} account${updatedIds.length === 1 ? '' : 's'}.`,
+      });
+    }
+
+    setBulkWorking(false);
+    if (failures.length === 0) setBulkEditing(false);
+  };
+
   const requestRemove = async (account: Account) => {
     const notice    = { title: `Remove ${account.label}?`, body: "This only removes it. it won't sign you out of the Riot Client." };
     const confirmed = await toast.confirm(notice, { confirmLabel: 'Remove', icon: 'error' });
@@ -479,15 +561,25 @@ export function AccountsPage({ onLookup }: Props) {
       return;
     }
 
+    const saveEverything = await toast.confirm(
+      {
+        title: 'Choose an export format',
+        body : 'Save everything keeps categories, region, FA/NFA, and notes so a re-import restores them. Credentials only saves user:pass | Display#Tag.',
+        icon : 'info',
+      },
+      { confirmLabel: 'Save everything', cancelLabel: 'Credentials only' },
+    );
+    const format: AccountExportFormat = saveEverything ? 'full' : 'credentials';
+
     const path = await save({
       filters    : [{ name: 'Text file', extensions: ['txt'] }],
-      defaultPath: 'accounts.txt',
+      defaultPath: saveEverything ? 'accounts-full.txt' : 'accounts.txt',
     });
     if (!path) return;
 
     setTransferring(true);
     try {
-      const result = await exportAccountsTxt(path);
+      const result = await exportAccountsTxt(path, format);
       log('ok', `exported ${result.exported} account${result.exported === 1 ? '' : 's'}`);
       if (result.errors.length > 0) {
         toast.warning({
@@ -565,7 +657,12 @@ export function AccountsPage({ onLookup }: Props) {
 
   const query            = search.trim().toLowerCase();
   const filteredAccounts = query
-    ? accounts.filter((a) => a.label.toLowerCase().includes(query) || a.username.toLowerCase().includes(query))
+    ? accounts.filter(
+        (a) =>
+          a.label.toLowerCase().includes(query) ||
+          a.username.toLowerCase().includes(query) ||
+          (a.notes ?? '').toLowerCase().includes(query),
+      )
     :  accounts;
 
   const compact             = accounts.length >= COMPACT_LIST_THRESHOLD;
@@ -574,18 +671,23 @@ export function AccountsPage({ onLookup }: Props) {
   const allFilteredSelected = filteredAccounts.length > 0 && filteredAccounts.every((account) => selectedIds.has(account.id));
   const selectedWithSession = accounts.filter((account) => selectedIds.has(account.id) && account.hasSession).length;
   const searchActive        = query.length > 0;
-  const canReorder          = !searchActive && !selectionMode && !controlsDisabled && accounts.length > 1;
-  const showDragHandle      = !selectionMode && accounts.length > 1;
+  const canReorder          = groupMode === 'category' && !searchActive && !selectionMode && !controlsDisabled && accounts.length > 1;
+  const showDragHandle      = groupMode === 'category' && !selectionMode && accounts.length > 1;
 
   const selectAllFiltered = () => {
     setSelectedIds(new Set(filteredAccounts.map((account) => account.id)));
   };
 
-  const categoryGroups    = groupAccountsByCategory(filteredAccounts).filter((group) => group.accounts.length > 0);
+  const categoryGroups    = groupAccounts(filteredAccounts, groupMode).filter((group) => group.accounts.length > 0);
   const existingCategories = distinctCategories(accounts);
 
-  const isCategoryOpen = (key: string): boolean =>
-    key in categoryOpenState ? categoryOpenState[key] : readPersistedRecord(ACCOUNTS_CATEGORY_STATE_KEY, key, true);
+  const groupStateKey  = (key: string): string => `${groupMode}:${key}`;
+  const isCategoryOpen = (key: string): boolean => {
+    const stateKey = groupStateKey(key);
+    return stateKey in categoryOpenState
+      ? categoryOpenState[stateKey]
+      : readPersistedRecord(ACCOUNTS_CATEGORY_STATE_KEY, stateKey, true);
+  };
 
   const groupOpenByKey = new Map<string, boolean>();
   const visibleRows: Account[] = [];
@@ -597,9 +699,19 @@ export function AccountsPage({ onLookup }: Props) {
   const indexById = new Map(visibleRows.map((account, i) => [account.id, i]));
 
   const toggleCategory = (key: string) => {
-    const next = !isCategoryOpen(key);
-    writePersistedRecord(ACCOUNTS_CATEGORY_STATE_KEY, key, next);
-    setCategoryOpenState((prev) => ({ ...prev, [key]: next }));
+    const next     = !isCategoryOpen(key);
+    const stateKey = groupStateKey(key);
+    writePersistedRecord(ACCOUNTS_CATEGORY_STATE_KEY, stateKey, next);
+    setCategoryOpenState((prev) => ({ ...prev, [stateKey]: next }));
+  };
+
+  const changeGroupMode = (mode: AccountGroupMode) => {
+    if (mode === groupMode) return;
+    setGroupMode(mode);
+    try {
+      sessionStorage.setItem(ACCOUNTS_GROUP_MODE_KEY, mode);
+    } catch {
+    }
   };
 
   accountsRef.current    = accounts;
@@ -804,8 +916,10 @@ export function AccountsPage({ onLookup }: Props) {
     </AccountCategorySection>
   );
 
-  const reorderableGroups = categoryGroups.filter((group) => group.key !== UNCATEGORIZED_KEY);
-  const uncategorizedGroup = categoryGroups.find((group) => group.key === UNCATEGORIZED_KEY);
+  const sectionReorderEnabled = groupMode === 'category';
+  const reorderableGroups  = sectionReorderEnabled ? categoryGroups.filter((group) => group.key !== UNCATEGORIZED_KEY) : [];
+  const uncategorizedGroup = sectionReorderEnabled ? categoryGroups.find((group) => group.key === UNCATEGORIZED_KEY) : undefined;
+  const staticGroups       = sectionReorderEnabled ? [] : categoryGroups;
 
   return (
     <main className = "accounts-page" data-tauri-drag-region>
@@ -886,6 +1000,25 @@ export function AccountsPage({ onLookup }: Props) {
           </div>
         )}
 
+        {!loadingAccounts && accounts.length > 0 && (
+          <div className = "accounts-groupby" data-tauri-drag-region>
+            <span className = "accounts-groupby-label">Group by</span>
+            <div className = "tools-subsection-pill-bar accounts-groupby-pills" role = "group" aria-label = "Group accounts by">
+              {GROUP_MODE_OPTIONS.map((option) => (
+                <button
+                  key          = {option.mode}
+                  type         = "button"
+                  className    = {`tools-subsection-pill${groupMode === option.mode ? ' active' : ''}`}
+                  onClick      = {() => changeGroupMode(option.mode)}
+                  aria-pressed = {groupMode === option.mode}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {selectionMode && (
           <div  className = "accounts-bulk-bar" data-tauri-drag-region>
           <span className = "accounts-bulk-summary">
@@ -894,6 +1027,14 @@ export function AccountsPage({ onLookup }: Props) {
                 : `${selectedCount} selected`}
             </span>
             <div className = "accounts-bulk-actions">
+              <button
+                type      = "button"
+                className = "app-btn app-btn-secondary app-btn-compact"
+                disabled  = {controlsDisabled || selectedCount === 0}
+                onClick   = {() => setBulkEditing(true)}
+              >
+                Edit selected
+              </button>
               {selectedWithSession > 0 && (
                 <button
                   type      = "button"
@@ -992,6 +1133,7 @@ export function AccountsPage({ onLookup }: Props) {
               </Reorder.Group>
             )}
             {!loadingAccounts && !accountsLoadError && uncategorizedGroup && renderCategoryGroup(uncategorizedGroup, false)}
+            {!loadingAccounts && !accountsLoadError && staticGroups.map((group) => renderCategoryGroup(group, false))}
           </div>
 
           {anyActionInProgress && (
@@ -1036,6 +1178,16 @@ export function AccountsPage({ onLookup }: Props) {
             saving             = {saving}
             onSave             = {submitEdit}
             onCancel           = {closeEdit}
+          />
+        )}
+        {bulkEditing && (
+          <AccountBulkEditDialog
+            key                = "bulk-editing"
+            count              = {selectedCount}
+            existingCategories = {existingCategories}
+            saving             = {bulkWorking}
+            onSave             = {(changes) => void applyBulkEdit(changes)}
+            onCancel           = {() => setBulkEditing(false)}
           />
         )}
       </AnimatePresence>

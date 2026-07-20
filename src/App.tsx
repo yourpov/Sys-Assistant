@@ -133,7 +133,7 @@ export function App() {
       );
       return;
     }
-    void workflow.start(action);
+    void workflow.startProcess();
   };
 
   return (

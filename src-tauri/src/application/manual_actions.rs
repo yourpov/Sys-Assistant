@@ -10,6 +10,7 @@ pub async fn run(action: ManualAction, settings: &Settings, ports: &Ports, stop:
         ManualAction::OpenLoader       => run_workflow::run_loader(ports, settings, stop).await,
         ManualAction::ChangeSeed       => run_workflow::change_seed(ports, stop).await,
         ManualAction::OpenEmuInstaller => open_emu_installer(ports, settings, stop).await,
+        ManualAction::OpenTraceX       => open_tracex(ports, settings, stop).await,
         ManualAction::RestartValorant  => restart_valorant(ports, settings, stop).await,
     }
 }
@@ -43,6 +44,15 @@ async fn open_emu_installer(ports: &Ports, settings: &Settings, stop: &StopToken
     let path = run_workflow::find_required(ports, run_workflow::EMU_INSTALLER_EXE, settings.emu_path.as_deref())?;
     run_workflow::with_cancel(stop, ports.launcher.launch_elevated(&path)).await?;
     ports.sink.emit_line(LogLevel::Ok, "emu installer running");
+    Ok(())
+}
+
+async fn open_tracex(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<(), AppError> {
+    run_workflow::check_cancelled(stop)?;
+    let path = run_workflow::find_tracex(ports, settings.tracex_path.as_deref())
+        .ok_or_else(|| AppError::FileMissing(run_workflow::TRACEX_EXE.to_string()))?;
+    run_workflow::with_cancel(stop, ports.launcher.launch_elevated(&path)).await?;
+    ports.sink.emit_line(LogLevel::Ok, "tracex running");
     Ok(())
 }
 

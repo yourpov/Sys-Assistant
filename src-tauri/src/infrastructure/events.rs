@@ -18,11 +18,6 @@ impl EventSink for TauriEventSink {
         let dto = LogLineDto { level: label, message: message.to_string(), replace: false };
         let _ = self.app.emit("workflow://log", dto);
     }
-
-    fn emit_progress(&self, message: &str) {
-        let dto = LogLineDto { level: "info", message: message.to_string(), replace: true };
-        let _ = self.app.emit("workflow://log", dto);
-    }
 }
 
 fn level_label(level: LogLevel) -> &'static str {

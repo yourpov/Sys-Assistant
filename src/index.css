@@ -1105,6 +1105,48 @@ button {
   justify-content: flex-end;
 }
 
+.accounts-groupby {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+
+.accounts-groupby-label {
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-faint);
+  white-space: nowrap;
+}
+
+.accounts-groupby-pills {
+  flex: 1;
+}
+
+.accounts-groupby-pills .tools-subsection-pill {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 12px;
+}
+
+.account-bulk-edit-hint {
+  margin: -4px 0 4px;
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+}
+
+.account-bulk-edit-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.account-bulk-edit-field--disabled {
+  opacity: 0.45;
+}
+
 .account-row--selectable {
   padding: 0;
 }
@@ -3945,7 +3987,7 @@ button {
 .account-row-notes {
   font-size: 11.5px;
   font-style: italic;
-  color: var(--color-text-ghost);
+  color: var(--color-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

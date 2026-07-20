@@ -4,9 +4,9 @@ use tauri::State;
 
 use super::workflow::{log_failure, try_take_stop_token};
 use crate::application::account_login;
-use crate::application::riot_watchdog::AccountRiotFlowGuard;
-use crate::application::account_txt::{build_export_text, parse_import_text};
-use crate::dto::{AccountDto, ExportAccountsResultDto, ImportAccountsResultDto};
+use crate::application::account_txt::{build_export_text, build_full_export_text, parse_import};
+use crate::domain::Account;
+use crate::dto::{AccountDto, ExportAccountsResultDto, ExportFormatDto, ImportAccountsResultDto};
 use crate::invoke_error::{InvokeErrorDto, invoke_err, invoke_err_msg};
 use crate::state::AppState;
 
@@ -67,8 +67,7 @@ pub fn reorder_accounts(state: State<'_, AppState>, ids: Vec<String>) -> Result<
 
 #[tauri::command]
 pub async fn login_account(state: State<'_, AppState>, id: String) -> Result<(), InvokeErrorDto> {
-    let _flow_guard = AccountRiotFlowGuard::new(&state);
-    let guard       = try_take_stop_token(&state)?;
+    let guard = try_take_stop_token(&state)?;
     account_login::login(&id, state.accounts.as_ref(), state.sessions.as_ref(), state.riot_login.as_ref(), &state.ports, &guard.token)
         .await
         .inspect_err(|e| log_failure(&state.ports, e))
@@ -81,7 +80,7 @@ pub fn forget_account_session(state: State<'_, AppState>, id: String) -> Result<
 }
 
 #[tauri::command]
-pub fn export_accounts_txt(state: State<'_, AppState>, path: String) -> Result<ExportAccountsResultDto, InvokeErrorDto> {
+pub fn export_accounts_txt(state: State<'_, AppState>, path: String, format: ExportFormatDto) -> Result<ExportAccountsResultDto, InvokeErrorDto> {
     let accounts = state.accounts.list();
     if accounts.is_empty() {
         return Err(invoke_err_msg(
@@ -117,7 +116,10 @@ pub fn export_accounts_txt(state: State<'_, AppState>, path: String) -> Result<E
         .cloned()
         .collect();
 
-    let text = build_export_text(&exportable, &passwords);
+    let text = match format {
+        ExportFormatDto::Credentials => build_export_text(&exportable, &passwords),
+        ExportFormatDto::Full        => build_full_export_text(&exportable, &passwords),
+    };
     std::fs::write(&path, text).map_err(|error| {
         invoke_err_msg(
             "export_write_failed",
@@ -143,7 +145,7 @@ pub fn import_accounts_txt(state: State<'_, AppState>, path: String) -> Result<I
             format!("couldn't read import file ({error})"),
         )
     })?;
-    let (entries, mut errors) = parse_import_text(&raw);
+    let (entries, mut errors) = parse_import(&raw);
 
     if entries.is_empty() && errors.is_empty() {
         return Err(invoke_err_msg(
@@ -166,10 +168,29 @@ pub fn import_accounts_txt(state: State<'_, AppState>, path: String) -> Result<I
             continue;
         }
 
-        match state.accounts.add(entry.label.clone(), entry.username.clone(), entry.password) {
+        match state.accounts.add(entry.label.clone(), entry.username.clone(), entry.password.clone()) {
             Ok(account) => {
+                if !entry.full_access {
+                    let _ = state.accounts.set_full_access(&account.id, false);
+                }
+                if entry.category.is_some() {
+                    let _ = state.accounts.set_category(&account.id, entry.category.clone());
+                }
+                if entry.region.is_some() {
+                    let _ = state.accounts.set_region(&account.id, entry.region.clone());
+                }
+                if entry.notes.is_some() {
+                    let _ = state.accounts.set_notes(&account.id, entry.notes.clone());
+                }
                 seen_usernames.insert(username_key);
-                added.push(AccountDto::from(account));
+                let restored = Account {
+                    full_access : entry.full_access,
+                    category    : entry.category,
+                    region      : entry.region,
+                    notes       : entry.notes,
+                    ..account
+                };
+                added.push(AccountDto::from(restored));
             }
             Err(error) => errors.push(format!("couldn't add {}: {error}", entry.label)),
         }

@@ -14,6 +14,10 @@ export function runAccountSwap(accountIds: string[]): Promise<void> {
   return invoke('run_account_swap', { accountIds });
 }
 
+export function runLoader(): Promise<void> {
+  return invoke('run_loader');
+}
+
 export function cancelAction(): Promise<void> {
   return invoke('cancel_action');
 }

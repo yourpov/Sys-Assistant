@@ -9,14 +9,14 @@ export interface LogLine {
 export interface Settings {
   emuPath                       : string | null;
   loaderPath                    : string | null;
+  tracexPath                    : string | null;
   isAlwaysOnTop                 : boolean;
   insertSimEnabled              : boolean;
   insertSimKeybind              : string | null;
   manualActionsEnabled          : ManualAction[];
   accountSwapPool               : string[];
   henrikApiKeys                 : string[];
-  installEmuOnRiotLaunchEnabled : boolean;
-  autoFix55Enabled              : boolean;
+  autoRunLoaderEnabled          : boolean;
   toastOsNotificationsEnabled   : boolean;
   confirmBeforeActionsEnabled   : boolean;
   hideAccountUsernames          : boolean;
@@ -28,6 +28,7 @@ export interface Settings {
 export interface IssueReport {
   riotRunning  : boolean;
   staySignedIn : boolean;
+  installTracex: boolean;
   missingFiles : string[];
 }
 
@@ -41,6 +42,7 @@ export type ManualAction =
   | 'openLoader'
   | 'changeSeed'
   | 'openEmuInstaller'
+  | 'OpenTraceX'
   | 'restartValorant';
 
 export type Page = 'automate' | 'accounts' | 'configs' | 'settings' | 'tools';

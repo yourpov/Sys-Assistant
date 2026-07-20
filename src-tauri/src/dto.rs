@@ -20,6 +20,13 @@ impl From<WorkflowActionDto> for WorkflowAction {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ExportFormatDto {
+    Credentials,
+    Full,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ManualActionDto {
@@ -28,6 +35,7 @@ pub enum ManualActionDto {
     OpenLoader,
     ChangeSeed,
     OpenEmuInstaller,
+    OpenTraceX,
     RestartValorant,
     #[serde(other)]
     Unknown,
@@ -41,6 +49,7 @@ impl ManualActionDto {
             ManualActionDto::OpenLoader => Some(ManualAction::OpenLoader),
             ManualActionDto::ChangeSeed => Some(ManualAction::ChangeSeed),
             ManualActionDto::OpenEmuInstaller => Some(ManualAction::OpenEmuInstaller),
+            ManualActionDto::OpenTraceX => Some(ManualAction::OpenTraceX),
             ManualActionDto::RestartValorant => Some(ManualAction::RestartValorant),
             ManualActionDto::Unknown => None,
         }
@@ -55,6 +64,7 @@ impl From<ManualAction> for ManualActionDto {
             ManualAction::OpenLoader => ManualActionDto::OpenLoader,
             ManualAction::ChangeSeed => ManualActionDto::ChangeSeed,
             ManualAction::OpenEmuInstaller => ManualActionDto::OpenEmuInstaller,
+            ManualAction::OpenTraceX => ManualActionDto::OpenTraceX,
             ManualAction::RestartValorant => ManualActionDto::RestartValorant,
         }
     }
@@ -65,6 +75,7 @@ impl From<ManualAction> for ManualActionDto {
 pub struct IssueReportDto {
     pub riot_running   : bool,
     pub stay_signed_in : bool,
+    pub install_tracex : bool,
     pub missing_files  : Vec<String>,
 }
 
@@ -73,6 +84,7 @@ impl From<&IssueReport> for IssueReportDto {
         Self {
             riot_running   : report.riot_running,
             stay_signed_in : report.stay_signed_in,
+            install_tracex : report.install_tracex,
             missing_files  : report.missing_files.clone(),
         }
     }
@@ -83,6 +95,7 @@ impl From<IssueReportDto> for IssueReport {
         Self {
             riot_running   : dto.riot_running,
             stay_signed_in : dto.stay_signed_in,
+            install_tracex : dto.install_tracex,
             missing_files  : dto.missing_files,
         }
     }
@@ -117,14 +130,14 @@ pub struct LogLineDto {
 pub struct SettingsDto {
     pub emu_path                           : Option<String>,
     pub loader_path                        : Option<String>,
+    pub tracex_path                        : Option<String>,
     pub is_always_on_top                   : bool,
     pub insert_sim_enabled                 : bool,
     pub insert_sim_keybind                 : Option<String>,
     pub manual_actions_enabled             : Vec<ManualActionDto>,
     pub account_swap_pool                  : Vec<String>,
     pub henrik_api_keys                    : Vec<String>,
-    pub install_emu_on_riot_launch_enabled : bool,
-    pub auto_fix_55_enabled                    : bool,
+    pub auto_run_loader_enabled            : bool,
     pub toast_os_notifications_enabled     : bool,
     pub confirm_before_actions_enabled     : bool,
     pub hide_account_usernames             : bool,
@@ -138,14 +151,14 @@ impl From<&Settings> for SettingsDto {
         Self {
             emu_path                           : settings.emu_path.as_ref().map(|p| p.display().to_string()),
             loader_path                        : settings.loader_path.as_ref().map(|p| p.display().to_string()),
+            tracex_path                        : settings.tracex_path.as_ref().map(|p| p.display().to_string()),
             is_always_on_top                   : settings.is_always_on_top,
             insert_sim_enabled                 : settings.insert_sim_enabled,
             insert_sim_keybind                 : settings.insert_sim_keybind.clone(),
             manual_actions_enabled             : settings.manual_actions_enabled.iter().map(|a| (*a).into()).collect(),
             account_swap_pool                  : settings.account_swap_pool.clone(),
             henrik_api_keys                    : settings.henrik_api_keys.clone(),
-            install_emu_on_riot_launch_enabled : settings.install_emu_on_riot_launch_enabled,
-            auto_fix_55_enabled                    : settings.auto_fix_55_enabled,
+            auto_run_loader_enabled            : settings.auto_run_loader_enabled,
             toast_os_notifications_enabled     : settings.toast_os_notifications_enabled,
             confirm_before_actions_enabled     : settings.confirm_before_actions_enabled,
             hide_account_usernames             : settings.hide_account_usernames,
@@ -161,14 +174,14 @@ impl From<SettingsDto> for Settings {
         Self {
             emu_path                           : dto.emu_path.map(PathBuf::from),
             loader_path                        : dto.loader_path.map(PathBuf::from),
+            tracex_path                        : dto.tracex_path.map(PathBuf::from),
             is_always_on_top                   : dto.is_always_on_top,
             insert_sim_enabled                 : dto.insert_sim_enabled,
             insert_sim_keybind                 : dto.insert_sim_keybind,
             manual_actions_enabled             : dto.manual_actions_enabled.into_iter().filter_map(ManualActionDto::into_action).collect(),
             account_swap_pool                  : dto.account_swap_pool,
             henrik_api_keys                    : dto.henrik_api_keys,
-            install_emu_on_riot_launch_enabled : dto.install_emu_on_riot_launch_enabled,
-            auto_fix_55_enabled                    : dto.auto_fix_55_enabled,
+            auto_run_loader_enabled            : dto.auto_run_loader_enabled,
             toast_os_notifications_enabled     : dto.toast_os_notifications_enabled,
             confirm_before_actions_enabled     : dto.confirm_before_actions_enabled,
             hide_account_usernames             : dto.hide_account_usernames,

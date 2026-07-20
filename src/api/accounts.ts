@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
 import type { Account }                                    from '../types';
-import type { ExportAccountsResult, ImportAccountsResult } from '../utils/accountTxt';
+import type { AccountExportFormat, ExportAccountsResult, ImportAccountsResult } from '../utils/accountTxt';
 
 export function listAccounts(): Promise<Account[]> {
   return invoke('list_accounts');
@@ -47,8 +47,8 @@ export function forgetAccountSession(id: string): Promise<void> {
   return invoke('forget_account_session', { id });
 }
 
-export function exportAccountsTxt(path: string): Promise<ExportAccountsResult> {
-  return invoke('export_accounts_txt', { path });
+export function exportAccountsTxt(path: string, format: AccountExportFormat): Promise<ExportAccountsResult> {
+  return invoke('export_accounts_txt', { path, format });
 }
 
 export function importAccountsTxt(path: string): Promise<ImportAccountsResult> {

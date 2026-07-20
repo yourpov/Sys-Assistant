@@ -33,18 +33,16 @@ pub async fn run(
     let last_used = last_used.filter(|id| pool.iter().any(|p| p == id));
 
     let account_id = pick_next_account(&pool, last_used)
-        .ok_or_else(|| AppError::Account("no accounts chosen for Account Swap. select at least one in Settings, Automation and try again".into()))?;
+        .ok_or_else(|| AppError::Account("no accounts chosen for Account Swap. select at least one in Settings > Automation and try again".into()))?;
 
     run_workflow::check_cancelled(stop)?;
-    run_workflow::find_loader(ports, settings.loader_path.as_deref())?;
-    run_workflow::find_required(ports, run_workflow::EMU_INSTALLER_EXE, settings.emu_path.as_deref())?;
 
     run_workflow::close_valorant_if_running(ports, settings, stop).await?;
     account_login::login(&account_id, accounts, sessions, riot_login, ports, stop).await?;
 
-    run_workflow::run_post_login_start_process(ports, settings, stop).await?;
+    run_workflow::run_start_process(ports, settings, stop).await?;
 
-    ports.sink.emit_line(LogLevel::Ok, "ready");
+    ports.sink.emit_line(LogLevel::Ok, "signed in. choose to use Private or not");
     Ok(account_id)
 }
 

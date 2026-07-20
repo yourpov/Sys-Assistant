@@ -13,6 +13,7 @@ pub(super) const VALORANT_PROCESS: &str = "VALORANT";
 pub(super) const LOADER_EXES: &[&str] = &["ldr.novgk.exe", "ldr.exe"];
 pub(super) const LOADER_LABEL: &str = "ldr.novgk.exe or ldr.exe";
 pub(super) const EMU_INSTALLER_EXE: &str = "emu_installer.exe";
+pub(super) const TRACEX_EXE: &str = "tracex.exe";
 
 const RIOT_CLIENT_POLL_INTERVAL: Duration     = Duration::from_secs(2);
 const RIOT_CLIENT_STARTUP_TIMEOUT: Duration   = Duration::from_secs(30);
@@ -26,7 +27,7 @@ pub(super) const LOGIN_WAIT_TIMEOUT: Duration = Duration::from_secs(300);
 
 pub async fn run(action: WorkflowAction, settings: &Settings, ports: &Ports, stop: &StopToken) -> Result<(), AppError> {
     match action {
-        WorkflowAction::Start => start(ports, settings, stop).await,
+        WorkflowAction::Start => run_start_process(ports, settings, stop).await,
         WorkflowAction::CloseAll => close_all(ports, stop).await,
     }
 }
@@ -61,67 +62,40 @@ where
     }
 }
 
-async fn start(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<(), AppError> {
-    find_loader(ports, settings.loader_path.as_deref())?;
-    find_required(ports, EMU_INSTALLER_EXE, settings.emu_path.as_deref())?;
-
-    if settings.auto_fix_55_enabled {
-        force_refresh_riot_client(ports, settings, stop).await?;
-    } else {
-        ensure_riot_running(ports, stop).await?;
-        close_valorant_if_running(ports, settings, stop).await?;
-        run_emu_installer(ports, settings, stop).await?;
-    }
-
-    run_loader(ports, settings, stop).await?;
-    open_valorant(ports, settings, stop).await?;
-    ports.sink.emit_line(LogLevel::Ok, "ready");
-    Ok(())
-}
-
-pub(super) async fn run_post_login_start_process(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<(), AppError> {
-    find_loader(ports, settings.loader_path.as_deref())?;
-    find_required(ports, EMU_INSTALLER_EXE, settings.emu_path.as_deref())?;
-
-    if settings.auto_fix_55_enabled {
-        apply_55_fix(ports, settings, stop).await?;
-    } else {
-        run_emu_installer(ports, settings, stop).await?;
-    }
-
-    run_loader(ports, settings, stop).await?;
-    open_valorant(ports, settings, stop).await?;
-    Ok(())
-}
-
-async fn force_refresh_riot_client(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<(), AppError> {
+pub(super) async fn run_start_process(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<(), AppError> {
     close_valorant_if_running(ports, settings, stop).await?;
 
-    check_cancelled(stop)?;
-    ports.processes.kill_all(RIOT_CLIENT_PROCESS).await;
-    check_cancelled(stop)?;
-    ports.sink.emit_line(LogLevel::Info, "riot client closed");
-    sleep_cancellable(settings.close_wait, stop).await?;
+    let tracex = ensure_tracex_ready(ports, settings, stop).await?;
     ensure_riot_running(ports, stop).await?;
-    wait_for_riot_to_settle(ports, stop).await?;
+    check_cancelled(stop)?;
+    with_cancel(stop, ports.launcher.launch_elevated(&tracex)).await?;
+    check_cancelled(stop)?;
+    ports.sink.emit_line(
+        LogLevel::Info,
+        "tracex is running. pick option (1) or (2), then type N and press Enter to randomize your seed. it launches VALORANT when you're done",
+    );
 
-    apply_55_fix(ports, settings, stop).await
+    wait_for_valorant_launch(ports, settings, stop).await
 }
 
-pub(super) async fn apply_55_fix(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<(), AppError> {
-    if !ports.riot_session.is_logged_in().await {
-        ports.sink.emit_line(LogLevel::Info, "waiting for you to log in to the riot client");
-        if !wait_for_riot_login(ports, stop).await? {
-            ports.sink.emit_line(LogLevel::Warn, "still not logged in, running the emu installer anyway");
-        }
+async fn ensure_tracex_ready(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<std::path::PathBuf, AppError> {
+    if let Some(path) = find_tracex(ports, settings.tracex_path.as_deref()) {
+        return Ok(path);
     }
-
-    run_emu_installer_silently(ports, settings, stop).await?;
-
+    ports.sink.emit_line(LogLevel::Info, "tracex not found, running the emu installer to install it");
+    run_emu_installer(ports, settings, stop).await?;
     check_cancelled(stop)?;
-    ports.emu_env.flush_dns().await?;
-    check_cancelled(stop)?;
-    ports.sink.emit_line(LogLevel::Ok, "dns cache flushed");
+    find_tracex(ports, settings.tracex_path.as_deref()).ok_or_else(|| AppError::FileMissing(TRACEX_EXE.to_string()))
+}
+
+pub(super) fn find_tracex(ports: &Ports, override_path: Option<&std::path::Path>) -> Option<std::path::PathBuf> {
+    ports.files.find(TRACEX_EXE, override_path)
+}
+
+async fn wait_for_valorant_launch(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<(), AppError> {
+    ports.sink.emit_line(LogLevel::Info, "waiting for VALORANT to launch");
+    wait_for_process(ports, VALORANT_PROCESS, settings.check_every, None, stop).await?;
+    ports.sink.emit_line(LogLevel::Ok, "val found");
     Ok(())
 }
 
@@ -134,16 +108,6 @@ pub(super) async fn wait_for_riot_login(ports: &Ports, stop: &StopToken) -> Resu
         sleep_cancellable(LOGIN_POLL_INTERVAL, stop).await?;
     }
     Ok(true)
-}
-
-pub(super) async fn run_emu_installer_silently(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<(), AppError> {
-    check_cancelled(stop)?;
-    let path = find_required(ports, EMU_INSTALLER_EXE, settings.emu_path.as_deref())?;
-    ports.sink.emit_line(LogLevel::Info, "running emu installer");
-    with_cancel(stop, ports.launcher.launch_silent_and_confirm(&path, ports.sink.as_ref())).await?;
-    check_cancelled(stop)?;
-    ports.sink.emit_line(LogLevel::Ok, "emu installer finished");
-    Ok(())
 }
 
 pub(super) async fn ensure_riot_running(ports: &Ports, stop: &StopToken) -> Result<(), AppError> {
@@ -200,7 +164,7 @@ pub(super) async fn close_valorant_if_running(ports: &Ports, settings: &Settings
     sleep_cancellable(settings.close_wait, stop).await
 }
 
-pub(super) async fn run_loader(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<(), AppError> {
+pub async fn run_loader(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<(), AppError> {
     check_cancelled(stop)?;
     let path = find_loader(ports, settings.loader_path.as_deref())?;
     with_cancel(stop, ports.launcher.launch(&path, &[])).await?;
@@ -232,7 +196,6 @@ pub(super) fn find_required(ports: &Ports, filename: &str, override_path: Option
     ports.files.find(filename, override_path).ok_or_else(|| AppError::FileMissing(filename.to_string()))
 }
 
-/// The loader ships under either name, so accept whichever is present (honoring an override path first).
 pub(super) fn find_loader(ports: &Ports, override_path: Option<&std::path::Path>) -> Result<std::path::PathBuf, AppError> {
     LOADER_EXES
         .iter()

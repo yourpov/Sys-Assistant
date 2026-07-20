@@ -12,22 +12,27 @@ export const MANUAL_ACTIONS: ManualActionDef[] = [
     label  : 'VALORANT',
     hint   : "Closes VALORANT if it's running, opens it otherwise"
   },
-  { 
+  {
     action : 'toggleRiotClient',
     label  : 'Riot Client',
     hint   : "Closes the Riot Client if it's running, opens it otherwise"
   },
-  { 
+  {
+    action : 'OpenTraceX',
+    label  : 'Open TraceX',
+    hint   : 'Runs tracex.exe as administrator'
+  },
+  {
     action : 'changeSeed',
     label  : 'Change seed',
     hint   : 'Picks a new random emu seed'
   },
-  { 
+  {
     action : 'openEmuInstaller',
     label  : 'Open emu installer',
     hint   : 'Runs emu_installer.exe'
   },
-  { 
+  {
     action : 'openLoader',
     label  : 'Open the loader',
     hint   : 'Runs ldr.exe'

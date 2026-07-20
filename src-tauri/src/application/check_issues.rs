@@ -79,13 +79,13 @@ pub async fn check(ports: &Ports, settings: &Settings, stop: &StopToken) -> Resu
         if stay_signed_in { "stay signed in is enabled" } else { "stay signed in is not enabled" },
     )?;
 
-    let missing_files = find_missing_files(ports, settings, stop)?;
-    if missing_files.is_empty() {
-        super::run_workflow::emit_checked(ports, stop, LogLevel::Ok, "emu and loader found")?;
+    let (install_tracex, missing_files) = find_start_file_issues(ports, settings, stop)?;
+    if !install_tracex && missing_files.is_empty() {
+        super::run_workflow::emit_checked(ports, stop, LogLevel::Ok, "TraceX found")?;
     }
 
     super::run_workflow::check_cancelled(stop)?;
-    let report = IssueReport { riot_running, stay_signed_in, missing_files };
+    let report = IssueReport { riot_running, stay_signed_in, install_tracex, missing_files };
     let count  = report.issue_count();
     if count == 0 {
         super::run_workflow::emit_checked(ports, stop, LogLevel::Ok, "all good")?;
@@ -96,10 +96,14 @@ pub async fn check(ports: &Ports, settings: &Settings, stop: &StopToken) -> Resu
     Ok(CheckOutcome::Report(report))
 }
 
-pub async fn fix(report: &IssueReport, ports: &Ports, stop: &StopToken) -> Result<(), AppError> {
+pub async fn fix(report: &IssueReport, settings: &Settings, ports: &Ports, stop: &StopToken) -> Result<(), AppError> {
     super::run_workflow::check_cancelled(stop)?;
     if !report.riot_running {
         super::run_workflow::ensure_riot_running(ports, stop).await?;
+    }
+    if report.install_tracex {
+        super::run_workflow::check_cancelled(stop)?;
+        super::run_workflow::run_emu_installer(ports, settings, stop).await?;
     }
     if !report.stay_signed_in {
         super::run_workflow::check_cancelled(stop)?;
@@ -127,26 +131,22 @@ pub async fn fix(report: &IssueReport, ports: &Ports, stop: &StopToken) -> Resul
     Ok(())
 }
 
-fn find_missing_files(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<Vec<String>, AppError> {
-    let mut missing = Vec::new();
+fn find_start_file_issues(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<(bool, Vec<String>), AppError> {
     super::run_workflow::check_cancelled(stop)?;
-    if ports.files.find(EMU_INSTALLER_EXE, settings.emu_path.as_deref()).is_none() {
-        missing.push(EMU_INSTALLER_EXE.to_string());
+    if super::run_workflow::find_tracex(ports, settings.tracex_path.as_deref()).is_some() {
+        return Ok((false, Vec::new()));
     }
     super::run_workflow::check_cancelled(stop)?;
-    if super::run_workflow::find_loader(ports, settings.loader_path.as_deref()).is_err() {
-        missing.push(super::run_workflow::LOADER_LABEL.to_string());
+    if ports.files.find(EMU_INSTALLER_EXE, settings.emu_path.as_deref()).is_some() {
+        return Ok((true, Vec::new()));
     }
-    Ok(missing)
+    Ok((false, vec![format!("{} (or {} to install it)", super::run_workflow::TRACEX_EXE, EMU_INSTALLER_EXE)]))
 }
 
 async fn check_vanguard(ports: &Ports, stop: &StopToken) -> Result<(), AppError> {
     super::run_workflow::check_cancelled(stop)?;
     super::run_workflow::with_cancel(stop, async {
-        tokio::join!(
-            ports.services.start(VANGUARD_CLIENT_SERVICE, &*ports.sink),
-            ports.services.start(VANGUARD_KERNEL_SERVICE, &*ports.sink),
-        );
+        ports.services.start(VANGUARD_CLIENT_SERVICE, &*ports.sink).await;
         Ok(())
     })
     .await?;
@@ -155,30 +155,25 @@ async fn check_vanguard(ports: &Ports, stop: &StopToken) -> Result<(), AppError>
     let (client, kernel) = tokio::join!(ports.services.query(VANGUARD_CLIENT_SERVICE), ports.services.query(VANGUARD_KERNEL_SERVICE));
     super::run_workflow::check_cancelled(stop)?;
 
-    if client == ServiceState::NotInstalled || kernel == ServiceState::NotInstalled {
-        let missing = match (client == ServiceState::NotInstalled, kernel == ServiceState::NotInstalled) {
-            (true, true)   => "vgc and vgk (vanguard) aren't installed",
-            (true, false)  => "vgc (vanguard) isn't installed",
-            (false, true)  => "vgk (vanguard) isn't installed",
-            (false, false) => unreachable!(),
-        };
-        return Err(AppError::Service(format!("{missing}. install or repair Riot Vanguard, then try again")));
+    if client == ServiceState::NotInstalled {
+        return Err(AppError::Service(
+            "vgc (vanguard) isn't installed. install or repair Riot Vanguard, then try again".into(),
+        ));
+    }
+    if client != ServiceState::Running {
+        return Err(AppError::Service(
+            "vgc (vanguard) isn't running. start Riot Client / Vanguard, or reboot after installing, then try again".into(),
+        ));
     }
 
-    if client == ServiceState::Running && kernel == ServiceState::Running {
-        super::run_workflow::emit_checked(ports, stop, LogLevel::Ok, "vgc/vgk are both running")?;
-        return Ok(());
+    if kernel == ServiceState::Running {
+        return Err(AppError::Service(
+            "vgk (vanguard) is running. it must be off for this to work. close VALORANT and Vanguard, then restart your PC and try again".into(),
+        ));
     }
 
-    let not_running = match (client == ServiceState::Running, kernel == ServiceState::Running) {
-        (false, false) => "vgc and vgk (vanguard) aren't running",
-        (false, true)  => "vgc (vanguard) isn't running",
-        (true, false)  => "vgk (vanguard) isn't running",
-        (true, true)   => unreachable!(),
-    };
-    Err(AppError::Service(format!(
-        "{not_running}. both services must be running. start Riot Client / Vanguard, or reboot after installing, then try again"
-    )))
+    super::run_workflow::emit_checked(ports, stop, LogLevel::Ok, "vgc is running and vgk is off")?;
+    Ok(())
 }
 
 async fn ensure_vc_redist(ports: &Ports, stop: &StopToken) -> Result<(), AppError> {
@@ -220,14 +215,14 @@ mod tests {
     }
 
     #[test]
-    fn find_missing_files_stops_when_cancelled() {
+    fn find_start_file_issues_stops_when_cancelled() {
         let recorder  = Arc::new(Recorder::default());
         let processes = Arc::new(FakeProcesses { running: Default::default() });
         let riot      = Arc::new(FakeRiot { running: Mutex::new(false) });
         let ports     = fake_ports(recorder, processes, riot);
         let stop      = Arc::new(AtomicBool::new(true));
 
-        let result = find_missing_files(&ports, &no_wait_settings(), &stop);
+        let result = find_start_file_issues(&ports, &no_wait_settings(), &stop);
 
         assert!(matches!(result, Err(AppError::Cancelled)));
     }

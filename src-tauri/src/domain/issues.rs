@@ -2,12 +2,13 @@
 pub struct IssueReport {
     pub riot_running   : bool,
     pub stay_signed_in : bool,
+    pub install_tracex : bool,
     pub missing_files  : Vec<String>,
 }
 
 impl IssueReport {
     pub fn issue_count(&self) -> usize {
-        (!self.riot_running as usize) + (!self.stay_signed_in as usize) + self.missing_files.len()
+        (!self.riot_running as usize) + (!self.stay_signed_in as usize) + (self.install_tracex as usize) + self.missing_files.len()
     }
 
     pub fn can_auto_fix(&self) -> bool {
@@ -26,7 +27,14 @@ mod tests {
     use super::*;
 
     fn base_report() -> IssueReport {
-        IssueReport { riot_running: true, stay_signed_in: true, missing_files: vec![] }
+        IssueReport { riot_running: true, stay_signed_in: true, install_tracex: false, missing_files: vec![] }
+    }
+
+    #[test]
+    fn counts_installable_tracex_as_a_fixable_issue() {
+        let report = IssueReport { install_tracex: true, ..base_report() };
+        assert_eq!(report.issue_count(), 1);
+        assert!(report.can_auto_fix());
     }
 
     #[test]

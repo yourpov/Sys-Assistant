@@ -114,6 +114,7 @@ pub fn run() {
             commands::workflow::run_action,
             commands::workflow::run_manual_action,
             commands::workflow::run_account_swap,
+            commands::workflow::run_loader,
             commands::workflow::get_settings,
             commands::workflow::save_settings,
             commands::workflow::find_file_path,

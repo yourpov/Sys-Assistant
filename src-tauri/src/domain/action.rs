@@ -11,5 +11,6 @@ pub enum ManualAction {
     OpenLoader,
     ChangeSeed,
     OpenEmuInstaller,
+    OpenTraceX,
     RestartValorant,
 }

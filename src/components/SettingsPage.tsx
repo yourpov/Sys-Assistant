@@ -50,14 +50,14 @@ const STATUS_LABELS: Record<string, string> = {
 const DEFAULT_SETTINGS: Settings = {
   emuPath                      : null,
   loaderPath                   : null,
+  tracexPath                   : null,
   isAlwaysOnTop                : false,
   insertSimEnabled             : false,
   insertSimKeybind             : null,
-  manualActionsEnabled         : ['toggleValorant', 'toggleRiotClient', 'openLoader', 'changeSeed'],
+  manualActionsEnabled         : ['toggleValorant', 'toggleRiotClient', 'OpenTraceX', 'changeSeed'],
   accountSwapPool              : [],
   henrikApiKeys                : [],
-  installEmuOnRiotLaunchEnabled: false,
-  autoFix55Enabled             : false,
+  autoRunLoaderEnabled         : true,
   toastOsNotificationsEnabled  : false,
   confirmBeforeActionsEnabled  : false,
   hideAccountUsernames         : false,
@@ -337,13 +337,8 @@ export function SettingsPage({ initialTab, onInitialTabConsumed, onOpenToolsMatc
             )}
             {tab === 'Automation' && (
               <>
-                <SettingsGroup
-                  groupId = "automation-emu-installer"
-                  title   = "Emu installer"
-                  hint    = "Optional emu_installer steps for Riot launch and the 55% loader error."
-                  defaultOpen
-                >
-                  <EmuInstallerSection settings = {settings} onChange = {update} />
+                <SettingsGroup        groupId  = "automation-start-process" title = "Start Process" hint = "What happens during Start Process and Account Swap." defaultOpen>
+                <StartProcessSection  settings = {settings} onChange              = {update} />
                 </SettingsGroup>
                 <SettingsGroup      groupId  = "automation-account-swap" title = "Account Swap" hint = "Which accounts rotate when you use this method.">
                 <AccountSwapSection settings = {settings} onChange             = {update} />
@@ -354,7 +349,7 @@ export function SettingsPage({ initialTab, onInitialTabConsumed, onOpenToolsMatc
                 <SettingsGroup        groupId  = "automation-ingame" title = "In-game" hint = "Keybinds for in-game actions.">
                 <InsertKeybindSection settings = {settings} onChange       = {update} />
                 </SettingsGroup>
-                <SettingsGroup        groupId  = "automation-paths" title = "Files Locations" hint = "Set the path of the loader and emu installer.">
+                <SettingsGroup        groupId  = "automation-paths" title = "Files Locations" hint = "Set the path of tracex, the loader, and the emu installer.">
                 <FileLocationsSection settings = {settings} onChange      = {update} />
                 </SettingsGroup>
               </>
@@ -582,44 +577,23 @@ function keyLabel(code: string): string {
   return code;
 }
 
-function EmuInstallerSection({ settings, onChange }: SettingsSectionProps) {
+function StartProcessSection({ settings, onChange }: SettingsSectionProps) {
   return (
-    <div className = "settings-hamad-stack" data-tauri-drag-region>
-      <div className = "settings-field" data-tauri-drag-region>
-        <label className = "settings-checkbox-row" htmlFor = "install-emu-on-riot-launch">
-          <input
-            id        = "install-emu-on-riot-launch"
-            type      = "checkbox"
-            className = "settings-toggle"
-            checked   = {settings.installEmuOnRiotLaunchEnabled}
-            onChange  = {() =>
-              onChange({ ...settings, installEmuOnRiotLaunchEnabled: !settings.installEmuOnRiotLaunchEnabled })
-            }
-          />
-          <span>Install emu on Riot launch</span>
-        </label>
-        <p className = "settings-hint">
-          Optional. When you open the Riot Client yourself (not during account login or Account Swap), waits for
-          sign-in, then runs emu_installer silently in the background.
-        </p>
-      </div>
-
-      <div className = "settings-field" data-tauri-drag-region>
-        <label className = "settings-checkbox-row" htmlFor = "auto-fix-55">
-          <input
-            id        = "auto-fix-55"
-            type      = "checkbox"
-            className = "settings-toggle"
-            checked   = {settings.autoFix55Enabled}
-            onChange  = {() => onChange({ ...settings, autoFix55Enabled: !settings.autoFix55Enabled })}
-          />
-          <span>Auto-fix 55% loader error</span>
-        </label>
-        <p className = "settings-hint">
-          During Start Process or Account Swap, runs emu installer silently before the loader to avoid the 55% step.
-        </p>
-      </div>
-    </div>
+    <SettingsPanel
+      title = "Loader"
+      hint  = "Skip the prompt asking to run the loader."
+    >
+      <label className = "settings-checkbox-row" htmlFor = "auto-run-loader">
+        <input
+          id        = "auto-run-loader"
+          type      = "checkbox"
+          className = "settings-toggle"
+          checked   = {settings.autoRunLoaderEnabled}
+          onChange  = {() => onChange({ ...settings, autoRunLoaderEnabled: !settings.autoRunLoaderEnabled })}
+        />
+        <span>Always run the loader without asking</span>
+      </label>
+    </SettingsPanel>
   );
 }
 
@@ -682,7 +656,7 @@ function InsertKeybindSection({ settings, onChange }: SettingsSectionProps) {
   );
 }
 
-type PathKey = 'emuPath' | 'loaderPath';
+type PathKey = 'emuPath' | 'loaderPath' | 'tracexPath';
 
 interface PathRow {
   key     : PathKey;
@@ -691,6 +665,7 @@ interface PathRow {
 }
 
 const PATH_ROWS: PathRow[] = [
+  { key: 'tracexPath', label: 'Tracex loader', filename: 'tracex.exe' },
   { key: 'emuPath', label: 'Emu installer', filename: 'emu_installer.exe' },
   { key: 'loaderPath', label: 'Loader', filename: 'ldr.exe' },
 ];

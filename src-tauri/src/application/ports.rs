@@ -13,10 +13,6 @@ pub enum LogLevel {
 
 pub trait EventSink: Send + Sync {
     fn emit_line(&self, level: LogLevel, message: &str);
-
-    fn emit_progress(&self, message: &str) {
-        self.emit_line(LogLevel::Info, message);
-    }
 }
 
 #[async_trait::async_trait]
@@ -29,7 +25,6 @@ pub trait ProcessMonitor: Send + Sync {
 pub trait ProcessLauncher: Send + Sync {
     async fn launch(&self, path: &Path, args: &[&str]) -> Result<(), AppError>;
     async fn launch_elevated(&self, path: &Path) -> Result<(), AppError>;
-    async fn launch_silent_and_confirm(&self, path: &Path, sink: &dyn EventSink) -> Result<(), AppError>;
 }
 
 pub trait FileFinder: Send + Sync {
@@ -50,7 +45,6 @@ pub trait SystemHealth: Send + Sync {
 pub trait EmuEnvironment: Send + Sync {
     fn current_emu_seed(&self) -> Option<String>;
     async fn set_emu_seed(&self, seed: u32) -> Result<(), AppError>;
-    async fn flush_dns(&self) -> Result<(), AppError>;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
