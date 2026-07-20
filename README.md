@@ -2,14 +2,14 @@
 
 Tauri desktop app for the Sys-Info Valorant workflow. Replaces the old `.bat` automation with a real UI, more methods, and a tools suite.
 
-![automate page](https://i.imgur.com/WGegNcj.png)
+![automate page](https://i.imgur.com/l1UOoyf.png)
 
 ## what it does
 
-- **Automate**: Start Process runs emu installer, then `ldr.exe`, then VALORANT. Check for issues and close-all live on the same page.
+- **Automate**: Start Process opens the Riot client, runs TraceX (installing it via the emu installer if missing), then waits for VALORANT. Check for issues and close-all live on the same page.
 - **Account swap**: signs into the next saved account in rotation, then runs Start Process.
 - **Manual options**: run any single step alone. Pick which ones show up in Settings.
-- **Accounts**: save Riot logins, import/export `.txt`, session snapshots, login / forget session.
+- **Accounts**: save Riot logins with notes, FA/NFA, and region tags. Group by category, access, or region; reorder, search (notes included), bulk-edit or bulk-remove selected accounts, import/export `.txt`, session snapshots, login / forget session.
 - **Tools**:
   - Lookup (HenrikDev)
   - Match lobby / live match info
@@ -24,8 +24,8 @@ Tauri desktop app for the Sys-Info Valorant workflow. Replaces the old `.bat` au
 
 |                                              |                                              |
 | -------------------------------------------- | -------------------------------------------- |
-| ![splash](https://i.imgur.com/ok9N6h7.png)   | ![accounts](https://i.imgur.com/UlJHPwe.png) |
-| ![tools](https://i.imgur.com/J0bOTFX.png)    | ![configs](https://i.imgur.com/7AqL95u.png)  |
+| ![splash](https://i.imgur.com/ok9N6h7.png)   | ![accounts](https://i.imgur.com/yZNg1UE.png) |
+| ![tools](https://i.imgur.com/J0bOTFX.png)    | ![configs](https://i.imgur.com/EoiI50G.png)  |
 | ![settings](https://i.imgur.com/AqZ40A4.png) |                                              |
 
 ## running it
