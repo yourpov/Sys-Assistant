@@ -36,7 +36,7 @@ pub async fn run(
         .ok_or_else(|| AppError::Account("no accounts chosen for Account Swap. select at least one in Settings, Automation and try again".into()))?;
 
     run_workflow::check_cancelled(stop)?;
-    run_workflow::find_required(ports, run_workflow::LOADER_EXE, settings.loader_path.as_deref())?;
+    run_workflow::find_loader(ports, settings.loader_path.as_deref())?;
     run_workflow::find_required(ports, run_workflow::EMU_INSTALLER_EXE, settings.emu_path.as_deref())?;
 
     run_workflow::close_valorant_if_running(ports, settings, stop).await?;

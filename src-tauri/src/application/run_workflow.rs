@@ -10,7 +10,8 @@ pub type StopToken = Arc<AtomicBool>;
 
 pub(super) const RIOT_CLIENT_PROCESS: &str = "RiotClientServices";
 pub(super) const VALORANT_PROCESS: &str = "VALORANT";
-pub(super) const LOADER_EXE: &str = "ldr.exe";
+pub(super) const LOADER_EXES: &[&str] = &["ldr.novgk.exe", "ldr.exe"];
+pub(super) const LOADER_LABEL: &str = "ldr.novgk.exe or ldr.exe";
 pub(super) const EMU_INSTALLER_EXE: &str = "emu_installer.exe";
 
 const RIOT_CLIENT_POLL_INTERVAL: Duration     = Duration::from_secs(2);
@@ -61,7 +62,7 @@ where
 }
 
 async fn start(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<(), AppError> {
-    find_required(ports, LOADER_EXE, settings.loader_path.as_deref())?;
+    find_loader(ports, settings.loader_path.as_deref())?;
     find_required(ports, EMU_INSTALLER_EXE, settings.emu_path.as_deref())?;
 
     if settings.auto_fix_55_enabled {
@@ -79,7 +80,7 @@ async fn start(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<(
 }
 
 pub(super) async fn run_post_login_start_process(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<(), AppError> {
-    find_required(ports, LOADER_EXE, settings.loader_path.as_deref())?;
+    find_loader(ports, settings.loader_path.as_deref())?;
     find_required(ports, EMU_INSTALLER_EXE, settings.emu_path.as_deref())?;
 
     if settings.auto_fix_55_enabled {
@@ -201,7 +202,7 @@ pub(super) async fn close_valorant_if_running(ports: &Ports, settings: &Settings
 
 pub(super) async fn run_loader(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<(), AppError> {
     check_cancelled(stop)?;
-    let path = find_required(ports, LOADER_EXE, settings.loader_path.as_deref())?;
+    let path = find_loader(ports, settings.loader_path.as_deref())?;
     with_cancel(stop, ports.launcher.launch(&path, &[])).await?;
     check_cancelled(stop)?;
     ports.sink.emit_line(LogLevel::Ok, "loader running");
@@ -229,6 +230,14 @@ pub(super) async fn wait_for_tool_to_finish(ports: &Ports, process_name: &str, s
 
 pub(super) fn find_required(ports: &Ports, filename: &str, override_path: Option<&std::path::Path>) -> Result<std::path::PathBuf, AppError> {
     ports.files.find(filename, override_path).ok_or_else(|| AppError::FileMissing(filename.to_string()))
+}
+
+/// The loader ships under either name, so accept whichever is present (honoring an override path first).
+pub(super) fn find_loader(ports: &Ports, override_path: Option<&std::path::Path>) -> Result<std::path::PathBuf, AppError> {
+    LOADER_EXES
+        .iter()
+        .find_map(|name| ports.files.find(name, override_path))
+        .ok_or_else(|| AppError::FileMissing(LOADER_LABEL.to_string()))
 }
 
 pub(super) async fn open_valorant(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<(), AppError> {
@@ -274,7 +283,9 @@ async fn close_all(ports: &Ports, stop: &StopToken) -> Result<(), AppError> {
     check_cancelled(stop)?;
     ports.processes.kill_all(RIOT_CLIENT_PROCESS).await;
     check_cancelled(stop)?;
-    ports.processes.kill_all(LOADER_EXE).await;
+    for loader in LOADER_EXES {
+        ports.processes.kill_all(loader).await;
+    }
     ports.sink.emit_line(LogLevel::Ok, "closed");
     Ok(())
 }
@@ -351,7 +362,7 @@ mod tests {
         let killed = recorder.killed.lock().unwrap();
         assert!(killed.iter().any(|p| p == VALORANT_PROCESS));
         assert!(killed.iter().any(|p| p == RIOT_CLIENT_PROCESS));
-        assert!(killed.iter().any(|p| p == LOADER_EXE));
+        assert!(LOADER_EXES.iter().all(|loader| killed.iter().any(|p| p == loader)));
     }
 
     #[tokio::test]

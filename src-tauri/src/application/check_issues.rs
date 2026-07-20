@@ -6,7 +6,6 @@ use crate::domain::{CheckOutcome, IssueReport, Settings};
 use crate::error::AppError;
 
 const EMU_INSTALLER_EXE: &str       = "emu_installer.exe";
-const LOADER_EXE: &str              = "ldr.exe";
 const VANGUARD_CLIENT_SERVICE: &str = "vgc";
 const VANGUARD_KERNEL_SERVICE: &str = "vgk";
 const RIOT_RESTART_SETTLE: Duration = Duration::from_secs(2);
@@ -130,11 +129,13 @@ pub async fn fix(report: &IssueReport, ports: &Ports, stop: &StopToken) -> Resul
 
 fn find_missing_files(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<Vec<String>, AppError> {
     let mut missing = Vec::new();
-    for (filename, override_path) in [(EMU_INSTALLER_EXE, settings.emu_path.as_deref()), (LOADER_EXE, settings.loader_path.as_deref())] {
-        super::run_workflow::check_cancelled(stop)?;
-        if ports.files.find(filename, override_path).is_none() {
-            missing.push(filename.to_string());
-        }
+    super::run_workflow::check_cancelled(stop)?;
+    if ports.files.find(EMU_INSTALLER_EXE, settings.emu_path.as_deref()).is_none() {
+        missing.push(EMU_INSTALLER_EXE.to_string());
+    }
+    super::run_workflow::check_cancelled(stop)?;
+    if super::run_workflow::find_loader(ports, settings.loader_path.as_deref()).is_err() {
+        missing.push(super::run_workflow::LOADER_LABEL.to_string());
     }
     Ok(missing)
 }
