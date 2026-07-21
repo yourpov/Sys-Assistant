@@ -1,6 +1,7 @@
 node_modules
 dist
 
+package-lock.json
 src-tauri/target
 
 tracex/
@@ -8,3 +9,4 @@ private/
 
 assets/
 supabase/
+
