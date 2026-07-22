@@ -1,6 +1,29 @@
+# v0.5.0
+
+July 20, 2026
+
+## Added
+
+- uninstall vanguard: fully removes riot's anti-cheat from settings > general > vanguard stops and deletes the vgc and vgk services (and their registry keys) and deletes the riot vanguard folder, with an optional restart-then-reinstall prompt afterward
+- check for traces: a button to check whether any vanguard services or files are still on your pc after uninstalling
+- tracex version: choose between the terminal tracex and the beta TUI build (tracex.tui.exe) in settings > automation
+- auto-run loader on valorant: optional setting to run the loader whenever VALORANT starts, even if you launched it yourself instead of through start process
+- guides: a link to the sys-info setup guides in settings > about
+
+## Changed
+
+- config editor: number values now support every decimal (0.1-0.9) and can be typed in
+- accounts: usernames are hidden by default and category groups start collapsed
+- opening apps: opening tracex, the loader, or the emu installer now closes if already running
+
+## Fixed
+
+- manual steps: "Open TraceX" now stays toggled and shows on the automate page (it was not being saved)
+- account login: swapping accounts is more reliable now
+
 # v0.4.0
 
-July 19, 2026
+July 20, 2026
 
 ## Changed
 

@@ -1,7 +1,22 @@
+use std::time::Duration;
+
 use super::ports::{LogLevel, Ports};
 use super::run_workflow::{self, StopToken, RIOT_CLIENT_PROCESS, VALORANT_PROCESS};
 use crate::domain::{ManualAction, Settings};
 use crate::error::AppError;
+
+const RIOT_CLOSE_POLL_INTERVAL: Duration = Duration::from_millis(500);
+const RIOT_CLOSE_TIMEOUT: Duration       = Duration::from_secs(6);
+
+pub async fn restart_riot_client(settings: &Settings, ports: &Ports, stop: &StopToken) -> Result<(), AppError> {
+    run_workflow::check_cancelled(stop)?;
+    ports.processes.kill_all(VALORANT_PROCESS).await;
+    ports.processes.kill_all(RIOT_CLIENT_PROCESS).await;
+    run_workflow::wait_for_process_gone(ports, RIOT_CLIENT_PROCESS, RIOT_CLOSE_POLL_INTERVAL, RIOT_CLOSE_TIMEOUT, stop).await?;
+    run_workflow::sleep_cancellable(settings.close_wait, stop).await?;
+    ports.sink.emit_line(LogLevel::Info, "reopening riot client for the vanguard install prompt");
+    run_workflow::ensure_riot_running(ports, stop).await
+}
 
 pub async fn run(action: ManualAction, settings: &Settings, ports: &Ports, stop: &StopToken) -> Result<(), AppError> {
     match action {
@@ -42,16 +57,16 @@ async fn close(ports: &Ports, process_name: &str, label: &str, stop: &StopToken)
 async fn open_emu_installer(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<(), AppError> {
     run_workflow::check_cancelled(stop)?;
     let path = run_workflow::find_required(ports, run_workflow::EMU_INSTALLER_EXE, settings.emu_path.as_deref())?;
-    run_workflow::with_cancel(stop, ports.launcher.launch_elevated(&path)).await?;
+    run_workflow::relaunch(ports, &path, true, &[], stop).await?;
     ports.sink.emit_line(LogLevel::Ok, "emu installer running");
     Ok(())
 }
 
 async fn open_tracex(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<(), AppError> {
     run_workflow::check_cancelled(stop)?;
-    let path = run_workflow::find_tracex(ports, settings.tracex_path.as_deref())
-        .ok_or_else(|| AppError::FileMissing(run_workflow::TRACEX_EXE.to_string()))?;
-    run_workflow::with_cancel(stop, ports.launcher.launch_elevated(&path)).await?;
+    let path = run_workflow::find_tracex(ports, settings)
+        .ok_or_else(|| AppError::FileMissing(run_workflow::tracex_exe_name(settings).to_string()))?;
+    run_workflow::relaunch(ports, &path, true, &[], stop).await?;
     ports.sink.emit_line(LogLevel::Ok, "tracex running");
     Ok(())
 }

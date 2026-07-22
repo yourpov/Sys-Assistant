@@ -10,12 +10,14 @@ import { fetchChangelog }                          from '../api/changelog';
 import { getAppCredit }                            from '../api/credit';
 import { submitFeedback, type FeedbackKind }       from '../api/feedback';
 import { findFilePath, getSettings, saveSettings } from '../api/settings';
+import { checkVanguardTraces, restartComputer, uninstallVanguard } from '../api/workflow';
+import { VANGUARD_REINSTALL_FLAG }                  from '../constants/vanguard';
 import { MANUAL_ACTIONS }                          from '../constants/manualActions';
 import {
   CLIPBOARD_ACK_MS,
   SETTINGS_SAVE_DEBOUNCE_MS,
 } from '../constants/timing';
-import { GITHUB_URL, HENRIK_DASHBOARD_URL }                             from '../constants/urls';
+import { GITHUB_URL, GUIDES_URL, HENRIK_DASHBOARD_URL }                 from '../constants/urls';
 import { SETTINGS_WINDOW_SIZE }                                         from '../constants/windowSizes';
 
 import { setOsNotifications, toast }                                    from '../hooks/useToastStore';
@@ -51,16 +53,19 @@ const DEFAULT_SETTINGS: Settings = {
   emuPath                      : null,
   loaderPath                   : null,
   tracexPath                   : null,
+  tracexTuiPath                : null,
+  tracexUseTui                 : false,
   isAlwaysOnTop                : false,
   insertSimEnabled             : false,
   insertSimKeybind             : null,
-  manualActionsEnabled         : ['toggleValorant', 'toggleRiotClient', 'OpenTraceX', 'changeSeed'],
+  manualActionsEnabled         : ['toggleValorant', 'toggleRiotClient', 'openTraceX', 'changeSeed'],
   accountSwapPool              : [],
   henrikApiKeys                : [],
   autoRunLoaderEnabled         : true,
+  autoRunLoaderOnValorant      : false,
   toastOsNotificationsEnabled  : false,
   confirmBeforeActionsEnabled  : false,
-  hideAccountUsernames         : false,
+  hideAccountUsernames         : true,
   reduceAnimationsEnabled      : false,
   muteAlertSoundsEnabled       : false,
   accentColor                  : null,
@@ -333,12 +338,19 @@ export function SettingsPage({ initialTab, onInitialTabConsumed, onOpenToolsMatc
                 <SettingsGroup        groupId  = "general-safety" title = "Safety" hint = "Extra confirmation before destructive or hard-to-undo actions.">
                 <ConfirmationsSection settings = {settings} onChange    = {update} />
                 </SettingsGroup>
+                <SettingsGroup groupId = "general-maintenance" title = "Vanguard" hint = "Riot Vanguard Options.">
+                  <VanguardSection />
+                </SettingsGroup>
               </>
             )}
             {tab === 'Automation' && (
               <>
                 <SettingsGroup        groupId  = "automation-start-process" title = "Start Process" hint = "What happens during Start Process and Account Swap." defaultOpen>
-                <StartProcessSection  settings = {settings} onChange              = {update} />
+                <LoaderPromptSection  settings = {settings} onChange              = {update} />
+                <TraceXVersionSection settings = {settings} onChange              = {update} />
+                </SettingsGroup>
+                <SettingsGroup       groupId  = "automation-loader" title = "Loader" hint = "Run the loader automatically when VALORANT is running.">
+                <LoaderAutoRunSection settings = {settings} onChange       = {update} />
                 </SettingsGroup>
                 <SettingsGroup      groupId  = "automation-account-swap" title = "Account Swap" hint = "Which accounts rotate when you use this method.">
                 <AccountSwapSection settings = {settings} onChange             = {update} />
@@ -363,6 +375,7 @@ export function SettingsPage({ initialTab, onInitialTabConsumed, onOpenToolsMatc
               <>
                 <SettingsGroup groupId = "about-project" title = "Project" hint = "By the Sys-Info community, for the Sys-Info community." defaultOpen>
                   <CreditsSection onOpenScene = {onOpenScene} />
+                  <GuidesSection />
                   <OpenSourceSection />
                 </SettingsGroup>
                 <SettingsGroup groupId = "about-feedback" title = "Feedback" hint = "Send suggestions or bug reports and read changelogs.">
@@ -554,6 +567,100 @@ function AppLogsSection() {
   );
 }
 
+function VanguardSection() {
+  const [working, setWorking]   = useState(false);
+  const [checking, setChecking] = useState(false);
+
+  const checkTraces = async () => {
+    setChecking(true);
+    try {
+      const traces = await checkVanguardTraces();
+      if (traces.clean) {
+        toast.success({
+          title: 'No Vanguard traces found',
+          body : 'The vgc/vgk services and the Riot Vanguard folder are all gone.',
+        });
+      } else {
+        const found = [
+          traces.vgcService    ? 'vgc service'          : null,
+          traces.vgkService    ? 'vgk service'          : null,
+          traces.installFolder ? 'Riot Vanguard folder' : null,
+        ].filter(Boolean).join(', ');
+        toast.warning({
+          title: 'Vanguard traces still present',
+          body : `Still on this PC: ${found}. Run Uninstall Vanguard, then restart to clear the rest.`,
+        });
+      }
+    } catch (e) {
+      toast.error(toastFromError(e, { title: "Couldn't check for Vanguard traces" }));
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const uninstall = async () => {
+    setChecking(true);
+    let alreadyClean = false;
+    try {
+      alreadyClean = (await checkVanguardTraces()).clean;
+    } catch {
+    } finally {
+      setChecking(false);
+    }
+    if (alreadyClean) {
+      toast.info({ title: "Vanguard isn't installed", body: 'There are no Vanguard traces to remove on this PC.' });
+      return;
+    }
+
+    const confirmed = await toast.confirm(
+      {
+        title: 'Fully uninstall Riot Vanguard?',
+        body : "You will have to restart your PC afterward to finish removing the kernel driver.",
+      },
+      { confirmLabel: 'Uninstall Vanguard', icon: 'error' },
+    );
+    if (!confirmed) return;
+
+    setWorking(true);
+    try {
+      await uninstallVanguard();
+      const restart = await toast.confirm(
+        {
+          title: 'Vanguard uninstalled',
+          body : 'Do you want to restart your PC? A restart finishes removing the kernel driver.',
+        },
+        { confirmLabel: 'Restart now', cancelLabel: 'Not now' },
+      );
+      if (restart) {
+        try {
+          localStorage.setItem(VANGUARD_REINSTALL_FLAG, '1');
+        } catch {
+        }
+        await restartComputer();
+      }
+    } catch (e) {
+      toast.error(toastFromError(e, { title: "Couldn't uninstall Vanguard" }));
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  return (
+    <SettingsPanel title = "Uninstall Vanguard" hint = "Fully remove Riot's anti-cheat and its traces.">
+      <div    className = "settings-actions-row" data-tauri-drag-region>
+      <button type      = "button" className = "app-btn app-btn-danger app-btn-compact" disabled = {working || checking} onClick = {() => void uninstall()}>
+          {working ? 'Uninstalling...' : 'Uninstall Vanguard'}
+        </button>
+      </div>
+      <div    className = "settings-actions-row" data-tauri-drag-region>
+      <button type      = "button" className = "app-btn app-btn-info app-btn-compact" disabled = {working || checking} onClick = {() => void checkTraces()}>
+          {checking ? 'Checking...' : 'Check for traces'}
+        </button>
+      </div>
+    </SettingsPanel>
+  );
+}
+
 const MODIFIER_CODES = new Set(['ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight', 'AltLeft', 'AltRight', 'MetaLeft', 'MetaRight']);
 
 const KEY_LABELS: Record<string, string> = {
@@ -577,11 +684,11 @@ function keyLabel(code: string): string {
   return code;
 }
 
-function StartProcessSection({ settings, onChange }: SettingsSectionProps) {
+function LoaderPromptSection({ settings, onChange }: SettingsSectionProps) {
   return (
     <SettingsPanel
       title = "Loader"
-      hint  = "Skip the prompt asking to run the loader."
+      hint  = "Skip the prompt asking to run the loader during Start Process."
     >
       <label className = "settings-checkbox-row" htmlFor = "auto-run-loader">
         <input
@@ -593,6 +700,54 @@ function StartProcessSection({ settings, onChange }: SettingsSectionProps) {
         />
         <span>Always run the loader without asking</span>
       </label>
+    </SettingsPanel>
+  );
+}
+
+function LoaderAutoRunSection({ settings, onChange }: SettingsSectionProps) {
+  return (
+    <SettingsPanel
+      title = "Auto-run on VALORANT start"
+      hint  = "Runs the loader whenever VALORANT starts, even if you launched it yourself."
+    >
+      <label className = "settings-checkbox-row" htmlFor = "auto-run-loader-valorant">
+        <input
+          id        = "auto-run-loader-valorant"
+          type      = "checkbox"
+          className = "settings-toggle"
+          checked   = {settings.autoRunLoaderOnValorant}
+          onChange  = {() => onChange({ ...settings, autoRunLoaderOnValorant: !settings.autoRunLoaderOnValorant })}
+        />
+        <span>Always run the loader once VALORANT is running, however it was launched</span>
+      </label>
+    </SettingsPanel>
+  );
+}
+
+function TraceXVersionSection({ settings, onChange }: SettingsSectionProps) {
+  return (
+    <SettingsPanel
+      title = "TraceX version"
+      hint  = "Choose which version of TraceX to use. The beta TUI build (tracex.tui.exe) goes in the same folder as tracex.exe."
+    >
+      <div className = "tools-subsection-pill-bar tracex-version-toggle" role = "group" aria-label = "TraceX version">
+        <button
+          type         = "button"
+          className    = {`tools-subsection-pill${!settings.tracexUseTui ? ' active' : ''}`}
+          onClick      = {() => onChange({ ...settings, tracexUseTui: false })}
+          aria-pressed = {!settings.tracexUseTui}
+        >
+          Terminal
+        </button>
+        <button
+          type         = "button"
+          className    = {`tools-subsection-pill${settings.tracexUseTui ? ' active' : ''}`}
+          onClick      = {() => onChange({ ...settings, tracexUseTui: true })}
+          aria-pressed = {settings.tracexUseTui}
+        >
+          Beta TUI
+        </button>
+      </div>
     </SettingsPanel>
   );
 }
@@ -656,7 +811,7 @@ function InsertKeybindSection({ settings, onChange }: SettingsSectionProps) {
   );
 }
 
-type PathKey = 'emuPath' | 'loaderPath' | 'tracexPath';
+type PathKey = 'emuPath' | 'loaderPath' | 'tracexPath' | 'tracexTuiPath';
 
 interface PathRow {
   key     : PathKey;
@@ -666,6 +821,7 @@ interface PathRow {
 
 const PATH_ROWS: PathRow[] = [
   { key: 'tracexPath', label: 'Tracex loader', filename: 'tracex.exe' },
+  { key: 'tracexTuiPath', label: 'Tracex TUI (beta)', filename: 'tracex.tui.exe' },
   { key: 'emuPath', label: 'Emu installer', filename: 'emu_installer.exe' },
   { key: 'loaderPath', label: 'Loader', filename: 'ldr.exe' },
 ];
@@ -1194,6 +1350,21 @@ function HenrikApiKeySection({ settings, onChange }: SettingsSectionProps) {
         </button>
         <button type = "button" className = "app-btn app-btn-secondary app-btn-compact" onClick = {() => openUrl(HENRIK_DASHBOARD_URL)}>
           Get a free key
+        </button>
+      </div>
+    </SettingsPanel>
+  );
+}
+
+function GuidesSection() {
+  return (
+    <SettingsPanel
+      title = "Setup guides"
+      hint  = "Enter your license key to access the setup instructions, video guide, and fixes for common issues."
+    >
+      <div    className = "settings-actions-row" data-tauri-drag-region>
+      <button type      = "button" className = "app-btn app-btn-primary app-btn-compact" onClick = {() => openUrl(GUIDES_URL)}>
+          Open guides
         </button>
       </div>
     </SettingsPanel>

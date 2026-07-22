@@ -14,6 +14,7 @@ pub(super) const LOADER_EXES: &[&str] = &["ldr.novgk.exe", "ldr.exe"];
 pub(super) const LOADER_LABEL: &str = "ldr.novgk.exe or ldr.exe";
 pub(super) const EMU_INSTALLER_EXE: &str = "emu_installer.exe";
 pub(super) const TRACEX_EXE: &str = "tracex.exe";
+pub(super) const TRACEX_TUI_EXE: &str = "tracex.tui.exe";
 
 const RIOT_CLIENT_POLL_INTERVAL: Duration     = Duration::from_secs(2);
 const RIOT_CLIENT_STARTUP_TIMEOUT: Duration   = Duration::from_secs(30);
@@ -24,6 +25,8 @@ const VALORANT_QUICK_CHECK_TIMEOUT: Duration  = Duration::from_secs(5);
 const TOOL_POLL_INTERVAL: Duration            = Duration::from_secs(2);
 pub(super) const LOGIN_POLL_INTERVAL: Duration = Duration::from_secs(2);
 pub(super) const LOGIN_WAIT_TIMEOUT: Duration = Duration::from_secs(300);
+const RELAUNCH_KILL_POLL: Duration    = Duration::from_millis(150);
+const RELAUNCH_KILL_TIMEOUT: Duration = Duration::from_secs(3);
 
 pub async fn run(action: WorkflowAction, settings: &Settings, ports: &Ports, stop: &StopToken) -> Result<(), AppError> {
     match action {
@@ -68,28 +71,41 @@ pub(super) async fn run_start_process(ports: &Ports, settings: &Settings, stop: 
     let tracex = ensure_tracex_ready(ports, settings, stop).await?;
     ensure_riot_running(ports, stop).await?;
     check_cancelled(stop)?;
-    with_cancel(stop, ports.launcher.launch_elevated(&tracex)).await?;
+    relaunch(ports, &tracex, true, &[], stop).await?;
     check_cancelled(stop)?;
     ports.sink.emit_line(
         LogLevel::Info,
-        "tracex is running. pick option (1) or (2), then type N and press Enter to randomize your seed. it launches VALORANT when you're done",
+        "tracex is running. (note, only randomize seed when banned)",
     );
 
     wait_for_valorant_launch(ports, settings, stop).await
 }
 
 async fn ensure_tracex_ready(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<std::path::PathBuf, AppError> {
-    if let Some(path) = find_tracex(ports, settings.tracex_path.as_deref()) {
+    if let Some(path) = find_tracex(ports, settings) {
         return Ok(path);
     }
     ports.sink.emit_line(LogLevel::Info, "tracex not found, running the emu installer to install it");
     run_emu_installer(ports, settings, stop).await?;
     check_cancelled(stop)?;
-    find_tracex(ports, settings.tracex_path.as_deref()).ok_or_else(|| AppError::FileMissing(TRACEX_EXE.to_string()))
+    find_tracex(ports, settings).ok_or_else(|| AppError::FileMissing(tracex_exe_name(settings).to_string()))
 }
 
-pub(super) fn find_tracex(ports: &Ports, override_path: Option<&std::path::Path>) -> Option<std::path::PathBuf> {
-    ports.files.find(TRACEX_EXE, override_path)
+pub(super) fn tracex_exe_name(settings: &Settings) -> &'static str {
+    if settings.tracex_use_tui {
+        TRACEX_TUI_EXE
+    } else {
+        TRACEX_EXE
+    }
+}
+
+pub(super) fn find_tracex(ports: &Ports, settings: &Settings) -> Option<std::path::PathBuf> {
+    let override_path = if settings.tracex_use_tui {
+        settings.tracex_tui_path.as_deref()
+    } else {
+        settings.tracex_path.as_deref()
+    };
+    ports.files.find(tracex_exe_name(settings), override_path)
 }
 
 async fn wait_for_valorant_launch(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<(), AppError> {
@@ -164,13 +180,38 @@ pub(super) async fn close_valorant_if_running(ports: &Ports, settings: &Settings
     sleep_cancellable(settings.close_wait, stop).await
 }
 
+pub(super) async fn relaunch(ports: &Ports, path: &std::path::Path, elevated: bool, args: &[&str], stop: &StopToken) -> Result<(), AppError> {
+    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+        if ports.processes.is_running(name).await {
+            ports.sink.emit_line(LogLevel::Info, &format!("{name} is already open, closing it first"));
+            ports.processes.kill_all(name).await;
+            wait_for_process_gone(ports, name, RELAUNCH_KILL_POLL, RELAUNCH_KILL_TIMEOUT, stop).await?;
+        }
+    }
+    check_cancelled(stop)?;
+    if elevated {
+        with_cancel(stop, ports.launcher.launch_elevated(path)).await
+    } else {
+        with_cancel(stop, ports.launcher.launch(path, args)).await
+    }
+}
+
 pub async fn run_loader(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<(), AppError> {
     check_cancelled(stop)?;
     let path = find_loader(ports, settings.loader_path.as_deref())?;
-    with_cancel(stop, ports.launcher.launch(&path, &[])).await?;
+    relaunch(ports, &path, false, &[], stop).await?;
     check_cancelled(stop)?;
     ports.sink.emit_line(LogLevel::Ok, "loader running");
     Ok(())
+}
+
+pub(super) async fn run_loader_if_idle(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<(), AppError> {
+    for exe in LOADER_EXES {
+        if ports.processes.is_running(exe).await {
+            return Ok(());
+        }
+    }
+    run_loader(ports, settings, stop).await
 }
 
 pub(super) async fn run_emu_installer(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<(), AppError> {

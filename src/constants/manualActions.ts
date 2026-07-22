@@ -18,9 +18,9 @@ export const MANUAL_ACTIONS: ManualActionDef[] = [
     hint   : "Closes the Riot Client if it's running, opens it otherwise"
   },
   {
-    action : 'OpenTraceX',
+    action : 'openTraceX',
     label  : 'Open TraceX',
-    hint   : 'Runs tracex.exe as administrator'
+    hint   : 'Runs TraceX as administrator'
   },
   {
     action : 'changeSeed',

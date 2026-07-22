@@ -686,7 +686,7 @@ export function AccountsPage({ onLookup }: Props) {
     const stateKey = groupStateKey(key);
     return stateKey in categoryOpenState
       ? categoryOpenState[stateKey]
-      : readPersistedRecord(ACCOUNTS_CATEGORY_STATE_KEY, stateKey, true);
+      : readPersistedRecord(ACCOUNTS_CATEGORY_STATE_KEY, stateKey, false);
   };
 
   const groupOpenByKey = new Map<string, boolean>();

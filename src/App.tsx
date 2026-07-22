@@ -1,8 +1,10 @@
 import { AnimatePresence, MotionConfig, motion } from 'framer-motion';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { listAccounts } from './api/accounts';
-import { getSettings }  from './api/settings';
+import { listAccounts }     from './api/accounts';
+import { getSettings }      from './api/settings';
+import { reinstallVanguard } from './api/workflow';
+import { VANGUARD_REINSTALL_FLAG } from './constants/vanguard';
 
 import { AccountsPage } from './components/AccountsPage';
 
@@ -60,6 +62,38 @@ export function App() {
       })
       .catch((e) => logSilentFailure('boot.settings', e));
   }, []);
+
+  const welcomeBackChecked = useRef(false);
+  useEffect(() => {
+    if (showSplash || welcomeBackChecked.current) return;
+    welcomeBackChecked.current = true;
+
+    let pending = false;
+    try {
+      pending = localStorage.getItem(VANGUARD_REINSTALL_FLAG) === '1';
+      if (pending) localStorage.removeItem(VANGUARD_REINSTALL_FLAG);
+    } catch {
+      pending = false;
+    }
+    if (!pending) return;
+
+    void (async () => {
+      const reinstall = await toast.confirm(
+        { title: 'Welcome back', body: 'Do you want to reinstall Vanguard now?' },
+        { confirmLabel: 'Reinstall Vanguard', cancelLabel: 'Not now' },
+      );
+      if (!reinstall) return;
+      try {
+        await reinstallVanguard();
+        toast.success({
+          title: 'Reopening Riot Client',
+          body : 'Open the VALORANT tab in Riot Client and accept the Vanguard install prompt when it appears.',
+        });
+      } catch (e) {
+        toast.error(toastFromError(e, { title: "Couldn't reopen Riot Client" }));
+      }
+    })();
+  }, [showSplash]);
 
   const cancelAutomateWork = useCallback(() => {
     workflow.cancel();

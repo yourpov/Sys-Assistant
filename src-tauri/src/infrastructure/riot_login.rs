@@ -18,6 +18,10 @@ const ERROR_TEXT_TIMEOUT_MS: u64          = 800;
 const FIELD_CHECK_TIMEOUT_MS: u64         = 800;
 const REQUIRED_CLEAN_POLLS: u32           = 6;
 const ERROR_KEYWORDS: [&str; 8]           = ["trouble", "unable", "incorrect", "failed", "try again", "error", "invalid", "wrong"];
+const LOGIN_FORM_TIMEOUT: Duration        = Duration::from_secs(20);
+const LOGIN_FORM_POLL_INTERVAL: Duration  = Duration::from_millis(600);
+const STAY_SIGNED_IN_ATTEMPTS: u32        = 5;
+const STAY_SIGNED_IN_RETRY: Duration      = Duration::from_millis(400);
 
 pub struct WindowsRiotLogin;
 
@@ -37,14 +41,7 @@ impl RiotLogin for WindowsRiotLogin {
         let automation = UIAutomation::new().map_err(|e| AppError::RiotClient(format!("couldn't start ui automation ({e})").into()))?;
         let root = automation.get_root_element().map_err(|e| AppError::RiotClient(format!("couldn't access the desktop ({e})").into()))?;
 
-        let window = find_riot_window(&automation, &root, pid).map_err(|_| {
-            let seen = describe_top_level_elements(&automation, &root);
-            AppError::RiotClient(format!(
-                "couldn't find the riot client's login window (pid {pid}). make sure it's open to the sign-in screen, then try again. visible top-level elements: {seen}"
-            ).into())
-        })?;
-
-        sign_out_if_signed_in(&automation, &window)?;
+        let window = wait_for_login_form(&automation, &root, pid, stop)?;
 
         let fields = automation
             .create_matcher()
@@ -66,10 +63,12 @@ impl RiotLogin for WindowsRiotLogin {
         let username_value: UIValuePattern =
             username_field.get_pattern().map_err(|e| AppError::RiotClient(format!("couldn't fill in the username field ({e})").into()))?;
         username_value.set_value(username).map_err(|e| AppError::RiotClient(format!("couldn't fill in the username field ({e})").into()))?;
+        nudge_field(username_field);
 
         let password_value: UIValuePattern =
             password_field.get_pattern().map_err(|e| AppError::RiotClient(format!("couldn't fill in the password field ({e})").into()))?;
         password_value.set_value(password).map_err(|e| AppError::RiotClient(format!("couldn't fill in the password field ({e})").into()))?;
+        nudge_field(password_field);
 
         check_stay_signed_in_box(&automation, &window, sink);
 
@@ -85,38 +84,81 @@ impl RiotLogin for WindowsRiotLogin {
     }
 }
 
-fn sign_out_if_signed_in(automation: &UIAutomation, window: &UIElement) -> Result<(), AppError> {
-    if still_on_login_form(automation, window) {
-        return Ok(());
+fn wait_for_login_form(automation: &UIAutomation, root: &UIElement, pid: u32, stop: &AtomicBool) -> Result<UIElement, AppError> {
+    let deadline         = std::time::Instant::now() + LOGIN_FORM_TIMEOUT;
+    let mut found_window = false;
+    let mut last_window: Option<UIElement> = None;
+
+    loop {
+        if stop.load(Ordering::Relaxed) {
+            return Err(AppError::Cancelled);
+        }
+
+        if let Ok(window) = find_riot_window(automation, root, pid) {
+            found_window = true;
+            if still_on_login_form(automation, &window) {
+                return Ok(window);
+            }
+            last_window = Some(window);
+        }
+
+        if std::time::Instant::now() >= deadline {
+            break;
+        }
+        std::thread::sleep(LOGIN_FORM_POLL_INTERVAL);
     }
 
-    let seen = describe_elements(automation, window, 8, 4000);
+    if !found_window {
+        let seen = describe_top_level_elements(automation, root);
+        return Err(AppError::RiotClient(format!(
+            "couldn't find the riot client's login window (pid {pid}). make sure it's open to the sign-in screen, then try again. visible top-level elements: {seen}"
+        ).into()));
+    }
+
+    let seen = last_window
+        .as_ref()
+        .map(|window| describe_elements(automation, window, 8, 4000))
+        .unwrap_or_else(|| "(none)".to_string());
     Err(AppError::RiotClient(format!(
         "you're still signed in to another account, and \"stay signed in\" means the riot client won't show a login screen on its own. \
          click your profile icon in the riot client, then Sign Out, then try this again. visible elements: {seen}"
     ).into()))
 }
 
+fn nudge_field(field: &UIElement) {
+    let _ = field.send_keys("{END} {BACKSPACE}", KEY_INTERVAL_MS);
+}
+
 fn check_stay_signed_in_box(automation: &UIAutomation, window: &UIElement, sink: &dyn EventSink) {
-    let Ok(checkboxes) = automation.create_matcher().from(window.clone()).control_type(ControlType::CheckBox).timeout(FIELD_CHECK_TIMEOUT_MS).find_all() else {
-        sink.emit_line(LogLevel::Warn, "couldn't find the riot client's checkboxes to check \"stay signed in\". you may need to enable it manually");
-        return;
-    };
-
-    let Some(checkbox) = checkboxes.into_iter().find(|el| el.get_name().map(|name| name.to_lowercase().contains("stay signed in")).unwrap_or(false)) else {
-        sink.emit_line(LogLevel::Warn, "couldn't find the \"stay signed in\" checkbox on the riot client's login screen. you may need to enable it manually");
-        return;
-    };
-
-    let Ok(toggle): Result<UITogglePattern, _> = checkbox.get_pattern() else {
-        sink.emit_line(LogLevel::Warn, "found the \"stay signed in\" checkbox but couldn't read its state. you may need to enable it manually");
-        return;
-    };
-    if toggle.get_toggle_state().map(|state| state != ToggleState::On).unwrap_or(true) {
-        if let Err(e) = toggle.toggle() {
-            sink.emit_line(LogLevel::Warn, &format!("couldn't check \"stay signed in\" ({e}). you may need to enable it manually"));
+    for attempt in 0..STAY_SIGNED_IN_ATTEMPTS {
+        if try_check_stay_signed_in(automation, window) {
+            return;
+        }
+        if attempt + 1 < STAY_SIGNED_IN_ATTEMPTS {
+            std::thread::sleep(STAY_SIGNED_IN_RETRY);
         }
     }
+    sink.emit_line(
+        LogLevel::Warn,
+        "couldn't tick \"stay signed in\" on the riot client's login screen. you may need to enable it manually",
+    );
+}
+
+fn try_check_stay_signed_in(automation: &UIAutomation, window: &UIElement) -> bool {
+    let Ok(checkboxes) = automation.create_matcher().from(window.clone()).control_type(ControlType::CheckBox).timeout(FIELD_CHECK_TIMEOUT_MS).find_all() else {
+        return false;
+    };
+    let Some(checkbox) = checkboxes.into_iter().find(|el| el.get_name().map(|name| name.to_lowercase().contains("stay signed in")).unwrap_or(false)) else {
+        return false;
+    };
+    let Ok(toggle): Result<UITogglePattern, _> = checkbox.get_pattern() else {
+        return false;
+    };
+    if matches!(toggle.get_toggle_state(), Ok(ToggleState::On)) {
+        return true;
+    }
+    let _ = toggle.toggle();
+    matches!(toggle.get_toggle_state(), Ok(ToggleState::On))
 }
 
 fn wait_for_login_outcome(automation: &UIAutomation, window: &UIElement, stop: &AtomicBool) -> Result<(), AppError> {

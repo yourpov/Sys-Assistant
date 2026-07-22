@@ -133,14 +133,14 @@ pub async fn fix(report: &IssueReport, settings: &Settings, ports: &Ports, stop:
 
 fn find_start_file_issues(ports: &Ports, settings: &Settings, stop: &StopToken) -> Result<(bool, Vec<String>), AppError> {
     super::run_workflow::check_cancelled(stop)?;
-    if super::run_workflow::find_tracex(ports, settings.tracex_path.as_deref()).is_some() {
+    if super::run_workflow::find_tracex(ports, settings).is_some() {
         return Ok((false, Vec::new()));
     }
     super::run_workflow::check_cancelled(stop)?;
     if ports.files.find(EMU_INSTALLER_EXE, settings.emu_path.as_deref()).is_some() {
         return Ok((true, Vec::new()));
     }
-    Ok((false, vec![format!("{} (or {} to install it)", super::run_workflow::TRACEX_EXE, EMU_INSTALLER_EXE)]))
+    Ok((false, vec![format!("{} (or {} to install it)", super::run_workflow::tracex_exe_name(settings), EMU_INSTALLER_EXE)]))
 }
 
 async fn check_vanguard(ports: &Ports, stop: &StopToken) -> Result<(), AppError> {

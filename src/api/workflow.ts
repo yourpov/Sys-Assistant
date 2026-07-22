@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 
-import type { CheckOutcome, IssueReport, ManualAction, WorkflowAction } from '../types';
+import type { CheckOutcome, IssueReport, ManualAction, VanguardTraces, WorkflowAction } from '../types';
 
 export function runAction(action: WorkflowAction): Promise<void> {
   return invoke('run_action', { action });
@@ -32,6 +32,18 @@ export function fixIssues(report: IssueReport): Promise<void> {
 
 export function restartComputer(): Promise<void> {
   return invoke('restart_computer');
+}
+
+export function uninstallVanguard(): Promise<void> {
+  return invoke('uninstall_vanguard');
+}
+
+export function reinstallVanguard(): Promise<void> {
+  return invoke('reinstall_vanguard');
+}
+
+export function checkVanguardTraces(): Promise<VanguardTraces> {
+  return invoke('check_vanguard_traces');
 }
 
 export function releaseWorkflowStop(): Promise<void> {

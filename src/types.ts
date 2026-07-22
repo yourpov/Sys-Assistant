@@ -10,6 +10,8 @@ export interface Settings {
   emuPath                       : string | null;
   loaderPath                    : string | null;
   tracexPath                    : string | null;
+  tracexTuiPath                 : string | null;
+  tracexUseTui                  : boolean;
   isAlwaysOnTop                 : boolean;
   insertSimEnabled              : boolean;
   insertSimKeybind              : string | null;
@@ -17,6 +19,7 @@ export interface Settings {
   accountSwapPool               : string[];
   henrikApiKeys                 : string[];
   autoRunLoaderEnabled          : boolean;
+  autoRunLoaderOnValorant       : boolean;
   toastOsNotificationsEnabled   : boolean;
   confirmBeforeActionsEnabled   : boolean;
   hideAccountUsernames          : boolean;
@@ -42,7 +45,7 @@ export type ManualAction =
   | 'openLoader'
   | 'changeSeed'
   | 'openEmuInstaller'
-  | 'OpenTraceX'
+  | 'openTraceX'
   | 'restartValorant';
 
 export type Page = 'automate' | 'accounts' | 'configs' | 'settings' | 'tools';
@@ -104,6 +107,13 @@ export interface CollectionItem {
 export interface RiotClientStatus {
   running  : boolean;
   loggedIn : boolean;
+}
+
+export interface VanguardTraces {
+  vgcService    : boolean;
+  vgkService    : boolean;
+  installFolder : boolean;
+  clean         : boolean;
 }
 
 export interface CollectionSnapshot {

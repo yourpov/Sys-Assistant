@@ -30,13 +30,26 @@ export async function tweenWindowSize(toWidth: number, toHeight: number, duratio
   const clampedWidth  = workArea ? Math.min(toWidth, workArea.width - SCREEN_MARGIN) : toWidth;
   const clampedHeight = workArea ? Math.min(toHeight, workArea.height - SCREEN_MARGIN) : toHeight;
 
-  const scaleFactor = await appWindow.scaleFactor();
-  if (token !== generation) return;
-  const currentSize = await appWindow.innerSize();
+  let scaleFactor: number;
+  let currentSize: Awaited<ReturnType<typeof appWindow.innerSize>>;
+  try {
+    scaleFactor = await appWindow.scaleFactor();
+    if (token !== generation) return;
+    currentSize = await appWindow.innerSize();
+  } catch {
+    return;
+  }
   if (token !== generation) return;
   const fromWidth  = currentSize.width / scaleFactor;
   const fromHeight = currentSize.height / scaleFactor;
   const start      = performance.now();
+
+  const applySize = async (width: number, height: number): Promise<void> => {
+    try {
+      await appWindow.setSize(new LogicalSize(width, height));
+    } catch {
+    }
+  };
 
   while (true) {
     if (token !== generation) return;
@@ -44,20 +57,26 @@ export async function tweenWindowSize(toWidth: number, toHeight: number, duratio
     const eased  = easeOutCubic(t);
     const width  = fromWidth + (clampedWidth - fromWidth) * eased;
     const height = fromHeight + (clampedHeight - fromHeight) * eased;
-    await appWindow.setSize(new LogicalSize(width, height));
+    await applySize(width, height);
     if (token !== generation) return;
     if (t >= 1) break;
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
   }
 
   if (token !== generation) return;
+  await applySize(clampedWidth, clampedHeight);
+
+  if (token !== generation) return;
   if (!workArea) return;
-  const currentPos = (await appWindow.outerPosition()).toLogical(scaleFactor);
-  const maxX       = workArea.x + workArea.width - clampedWidth;
-  const maxY       = workArea.y + workArea.height - clampedHeight;
-  const clampedX   = Math.min(Math.max(currentPos.x, workArea.x), Math.max(maxX, workArea.x));
-  const clampedY   = Math.min(Math.max(currentPos.y, workArea.y), Math.max(maxY, workArea.y));
-  if (clampedX !== currentPos.x || clampedY !== currentPos.y) {
-    await appWindow.setPosition(new LogicalPosition(clampedX, clampedY));
+  try {
+    const currentPos = (await appWindow.outerPosition()).toLogical(scaleFactor);
+    const maxX       = workArea.x + workArea.width - clampedWidth;
+    const maxY       = workArea.y + workArea.height - clampedHeight;
+    const clampedX   = Math.min(Math.max(currentPos.x, workArea.x), Math.max(maxX, workArea.x));
+    const clampedY   = Math.min(Math.max(currentPos.y, workArea.y), Math.max(maxY, workArea.y));
+    if (clampedX !== currentPos.x || clampedY !== currentPos.y) {
+      await appWindow.setPosition(new LogicalPosition(clampedX, clampedY));
+    }
+  } catch {
   }
 }

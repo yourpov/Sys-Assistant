@@ -23,6 +23,18 @@ export function meterStep(min: number, max: number): number {
   return span / 100;
 }
 
+function editStepFor(min: number, max: number): number {
+  return Math.min(meterStep(min, max), 0.1);
+}
+
+function roundMeterValue(value: number): number {
+  return Number(value.toFixed(2));
+}
+
+function formatMeterValue(value: number): string {
+  return Number.isInteger(value) ? String(value) : String(roundMeterValue(value));
+}
+
 export function MeterField({
   label,
   value,
@@ -36,8 +48,17 @@ export function MeterField({
   max      : number;
   onChange?: (value: number) => void;
 }) {
-  const percent = ((value - min) / (max - min)) * 100;
-  const step    = meterStep(min, max);
+  const percent  = ((value - min) / (max - min)) * 100;
+  const editStep = editStepFor(min, max);
+  const [draft, setDraft] = useState<string | null>(null);
+
+  const commit = (raw: string) => {
+    setDraft(raw);
+    if (raw.trim() === '') return;
+    const parsed = Number(raw);
+    if (Number.isNaN(parsed)) return;
+    onChange?.(roundMeterValue(Math.min(max, Math.max(min, parsed))));
+  };
 
   return (
     <div>
@@ -45,23 +66,39 @@ export function MeterField({
         {label}
       </div>
       {onChange ? (
-        <input
-          type      = "range"
-          className = "configs-meter-input"
-          min       = {min}
-          max       = {max}
-          step      = {step}
-          value     = {value}
-          onChange  = {(e) => onChange(Number(e.target.value))}
-        />
+        <>
+          <input
+            type      = "range"
+            className = "configs-meter-input"
+            min       = {min}
+            max       = {max}
+            step      = {editStep}
+            value     = {value}
+            onChange  = {(e) => { setDraft(null); onChange(roundMeterValue(Number(e.target.value))); }}
+          />
+          <div className = "mt-1 flex justify-center">
+            <input
+              type        = "number"
+              className   = "configs-key-input w-20 text-center text-sm font-semibold"
+              min         = {min}
+              max         = {max}
+              step        = {editStep}
+              value       = {draft ?? formatMeterValue(value)}
+              onChange    = {(e) => commit(e.target.value)}
+              onBlur      = {() => setDraft(null)}
+            />
+          </div>
+        </>
       ) : (
-        <div className = "h-1.5 w-full rounded-full bg-white/15">
-        <div className = "h-full rounded-full bg-white" style = {{ width: `${percent}%` }} />
-        </div>
+        <>
+          <div className = "h-1.5 w-full rounded-full bg-white/15">
+          <div className = "h-full rounded-full bg-white" style = {{ width: `${percent}%` }} />
+          </div>
+          <div className = "mt-1 text-center text-sm">
+            {formatMeterValue(value)}
+          </div>
+        </>
       )}
-      <div className = "mt-1 text-center text-sm">
-        {value.toFixed(step < 1 ? 1 : 0)}
-      </div>
     </div>
   );
 }
