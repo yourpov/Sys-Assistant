@@ -9,5 +9,6 @@ pub mod feedback;
 pub mod keybind;
 pub mod saved_players;
 pub mod tools;
+pub mod updater;
 pub mod vanguard;
 pub mod workflow;

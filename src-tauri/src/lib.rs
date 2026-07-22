@@ -67,6 +67,8 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_deep_link::init())
         .setup(|app| {
+            commands::updater::cleanup_old_binary();
+
             let state = AppState::new(app.handle());
             let settings = state.current_settings();
             if settings.is_always_on_top {
@@ -126,6 +128,8 @@ pub fn run() {
             commands::vanguard::uninstall_vanguard,
             commands::vanguard::reinstall_vanguard,
             commands::vanguard::check_vanguard_traces,
+            commands::updater::check_for_update,
+            commands::updater::download_and_apply_update,
             commands::credit::get_app_credit,
             commands::changelog::fetch_changelog,
             commands::collection::fetch_collection,

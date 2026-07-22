@@ -1,11 +1,24 @@
-import { relaunch }                                 from '@tauri-apps/plugin-process';
-import { check, type Update }                       from '@tauri-apps/plugin-updater';
+import { invoke }                                 from '@tauri-apps/api/core';
+import { listen }                                 from '@tauri-apps/api/event';
+import { relaunch }                               from '@tauri-apps/plugin-process';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { logSilentFailure }                     from '../utils/silentError';
+import { logSilentFailure }                       from '../utils/silentError';
 import { parseInvokeError, type UserFacingError } from '../utils/userError';
 
 type UpdateStatus = 'idle' | 'available' | 'downloading' | 'relaunching' | 'error';
+
+interface UpdateInfo {
+  version  : string;
+  notes    : string | null;
+  url      : string;
+  signature: string;
+}
+
+interface DownloadProgress {
+  downloaded: number;
+  total     : number;
+}
 
 export function useUpdater() {
   const [status, setStatus]     = useState<UpdateStatus>('idle');
@@ -13,15 +26,15 @@ export function useUpdater() {
   const [notes, setNotes]       = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [error, setError]       = useState<UserFacingError | null>(null);
-  const updateRef               = useRef<Update | null>(null);
+  const updateRef               = useRef<UpdateInfo | null>(null);
 
   useEffect(() => {
-    check()
+    invoke<UpdateInfo | null>('check_for_update')
       .then((update) => {
         if (update) {
           updateRef.current = update;
           setVersion(update.version);
-          setNotes(update.body ?? null);
+          setNotes(update.notes ?? null);
           setStatus('available');
         }
       })
@@ -33,25 +46,24 @@ export function useUpdater() {
     if (!update) return;
 
     setStatus('downloading');
+    setProgress(0);
     setError(null);
+
+    const unlisten = await listen<DownloadProgress>('update://progress', (event) => {
+      const { downloaded, total } = event.payload;
+      setProgress(total > 0 ? Math.min(100, Math.round((downloaded / total) * 100)) : 0);
+    });
+
     try {
-      let total      = 0;
-      let downloaded = 0;
-      await update.downloadAndInstall((event) => {
-        if (event.event === 'Started') {
-          total = event.data.contentLength ?? 0;
-        } else if (event.event === 'Progress') {
-          downloaded += event.data.chunkLength;
-          setProgress(total > 0 ? Math.min(100, Math.round((downloaded / total) * 100)) : 0);
-        } else if (event.event === 'Finished') {
-          setProgress(100);
-        }
-      });
+      await invoke('download_and_apply_update', { url: update.url, signature: update.signature });
+      setProgress(100);
       setStatus('relaunching');
       await relaunch();
     } catch (e) {
       setError(parseInvokeError(e));
       setStatus('error');
+    } finally {
+      unlisten();
     }
   }, []);
 
